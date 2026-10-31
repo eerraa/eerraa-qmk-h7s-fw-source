@@ -1,0 +1,1113 @@
+{
+  "name": "BRICK65",
+  "vendorId": "0x4501",
+  "productId": "0x000D",
+  "matrix": { "rows": 5, "cols": 15 },
+  "keycodes": ["qmk_lighting"],
+  "customKeycodes": [
+    { "name": "TD0", "title": "Tap Dance 0", "shortName": "TD0" },
+    { "name": "TD1", "title": "Tap Dance 1", "shortName": "TD1" },
+    { "name": "TD2", "title": "Tap Dance 2", "shortName": "TD2" },
+    { "name": "TD3", "title": "Tap Dance 3", "shortName": "TD3" },
+    { "name": "TD4", "title": "Tap Dance 4", "shortName": "TD4" },
+    { "name": "TD5", "title": "Tap Dance 5", "shortName": "TD5" },
+    { "name": "TD6", "title": "Tap Dance 6", "shortName": "TD6" },
+    { "name": "TD7", "title": "Tap Dance 7", "shortName": "TD7" }
+  ],
+  "menus": [
+    {
+      "label": "Lighting",
+      "content": [
+        {
+          "label": "Underglow",
+          "content": [
+            {
+              "label": "Brightness",
+              "type": "range",
+              "options": [0, 255],
+              "content": ["id_qmk_rgblight_brightness", 2, 1],
+              "showIf": "{id_qmk_rgblight_effect} != 0 && {id_qmk_rgblight_effect} != 2 && {id_qmk_rgblight_effect} != 3 && {id_qmk_rgblight_effect} != 4 && {id_qmk_rgblight_effect} != 5 && {id_qmk_rgblight_effect} != 24 && {id_qmk_rgblight_effect} != 35"
+            },
+            {
+              "label": "Effect",
+              "type": "dropdown",
+              "content": ["id_qmk_rgblight_effect", 2, 2],
+              "options": [
+                ["All Off", 0], ["Solid Color", 1], ["Breathing 1", 2], ["Breathing 2", 3], ["Breathing 3", 4],
+                ["Breathing 4", 5], ["Rainbow Mood 1", 6], ["Rainbow Mood 2", 7], ["Rainbow Mood 3", 8],
+                ["Rainbow Swirl 1", 9], ["Rainbow Swirl 2", 10], ["Rainbow Swirl 3", 11], ["Rainbow Swirl 4", 12],
+                ["Rainbow Swirl 5", 13], ["Rainbow Swirl 6", 14], ["Snake 1", 15], ["Snake 2", 16], ["Snake 3", 17],
+                ["Snake 4", 18], ["Snake 5", 19], ["Snake 6", 20], ["Knight 1", 21], ["Knight 2", 22], ["Knight 3", 23],
+                ["Christmas", 24], ["Gradient 1", 25], ["Gradient 2", 26], ["Gradient 3", 27], ["Gradient 4", 28],
+                ["Gradient 5", 29], ["Gradient 6", 30], ["Gradient 7", 31], ["Gradient 8", 32], ["Gradient 9", 33],
+                ["Gradient 10", 34], ["RGB Test", 35], ["Alternating", 36], ["Twinkle 1", 37], ["Twinkle 2", 38],
+                ["Twinkle 3", 39], ["Twinkle 4", 40], ["Twinkle 5", 41], ["Twinkle 6", 42], ["Pulse Off Press", 43],
+                ["Pulse On Press", 44], ["Pulse Off Press (Hold)", 45], ["Pulse On Press (Hold)", 46]
+              ]
+            },
+            {
+              "showIf": "{id_qmk_rgblight_effect} >= 43 && {id_qmk_rgblight_effect} <= 46",
+              "label": "Effect Speed",
+              "type": "range",
+              "options": [0, 255],
+              "content": ["id_qmk_rgblight_effect_speed", 2, 3]
+            },
+            {
+              "showIf": "{id_qmk_rgblight_effect} != 0 && {id_qmk_rgblight_effect} != 35",
+              "label": "Color",
+              "type": "color",
+              "content": ["id_qmk_rgblight_color", 2, 4]
+            },
+            {
+              "showIf": "({id_qmk_rgblight_effect} >= 2 && {id_qmk_rgblight_effect} <= 23) || ({id_qmk_rgblight_effect} >= 37 && {id_qmk_rgblight_effect} <= 42)",
+              "label": "Velocikey",
+              "type": "toggle",
+              "content": ["id_qmk_velocikey_toggle", 2, 5]
+            }
+          ]
+        },
+        {
+          "label": "Indicators",
+          "content": [
+            {
+              "label": "Indicator 1",
+              "type": "dropdown",
+              "content": ["id_qmk_custom_ind_1_select", 0, 1],
+              "options": [
+                ["Off", 0], ["Caps Lock", 1], ["Scroll Lock", 2], ["Num Lock", 3]
+              ]
+            },
+            {
+              "showIf": "{id_qmk_custom_ind_1_select} != 0",
+              "label": "Indicator 1 Brightness",
+              "type": "range",
+              "options": [0, 255],
+              "content": ["id_qmk_custom_ind_1_brightness", 0, 2]
+            },
+            {
+              "showIf": "{id_qmk_custom_ind_1_select} != 0",
+              "label": "Indicator 1 Color",
+              "type": "color",
+              "content": ["id_qmk_custom_ind_1_color", 0, 3]
+            },
+            {
+              "label": "Indicator 2",
+              "type": "dropdown",
+              "content": ["id_qmk_custom_ind_2_select", 0, 4],
+              "options": [
+                ["Off", 0], ["Caps Lock", 1], ["Scroll Lock", 2], ["Num Lock", 3]
+              ]
+            },
+            {
+              "showIf": "{id_qmk_custom_ind_2_select} != 0",
+              "label": "Indicator 2 Brightness",
+              "type": "range",
+              "options": [0, 255],
+              "content": ["id_qmk_custom_ind_2_brightness", 0, 5]
+            },
+            {
+              "showIf": "{id_qmk_custom_ind_2_select} != 0",
+              "label": "Indicator 2 Color",
+              "type": "color",
+              "content": ["id_qmk_custom_ind_2_color", 0, 6]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "FEATURE",
+      "content": [
+        {
+          "label": "SOCD",
+          "content": [
+            {
+              "label": "Left/Right Enable",
+              "type": "toggle",
+              "content": ["id_qmk_kill_switch_enable_lr", 10, 1]
+            },
+            {
+              "showIf": "{id_qmk_kill_switch_enable_lr} == 1",
+              "label": "Left/Right Mode",
+              "type": "dropdown",
+              "content": ["id_qmk_kill_switch_mode_lr", 10, 4],
+              "options": [["Last Input", 1], ["Neutral", 2], ["First Input", 3], ["Left Priority", 4], ["Right Priority", 5]]
+            },
+            {
+              "showIf": "{id_qmk_kill_switch_enable_lr} == 1",
+              "label": "Left Key",
+              "type": "keycode",
+              "content": ["id_qmk_kill_switch_left", 10, 2]
+            },
+            {
+              "showIf": "{id_qmk_kill_switch_enable_lr} == 1",
+              "label": "Right Key",
+              "type": "keycode",
+              "content": ["id_qmk_kill_switch_right", 10, 3]
+            },
+            {
+              "label": "Up/Down Enable",
+              "type": "toggle",
+              "content": ["id_qmk_kill_switch_enable_ud", 11, 1]
+            },
+            {
+              "showIf": "{id_qmk_kill_switch_enable_ud} == 1",
+              "label": "Up/Down Mode",
+              "type": "dropdown",
+              "content": ["id_qmk_kill_switch_mode_ud", 11, 4],
+              "options": [["Last Input", 1], ["Neutral", 2], ["First Input", 3], ["Up Priority", 4], ["Down Priority", 5]]
+            },
+            {
+              "showIf": "{id_qmk_kill_switch_enable_ud} == 1",
+              "label": "Up Key",
+              "type": "keycode",
+              "content": ["id_qmk_kill_switch_up", 11, 2]
+            },
+            {
+              "showIf": "{id_qmk_kill_switch_enable_ud} == 1",
+              "label": "Down Key",
+              "type": "keycode",
+              "content": ["id_qmk_kill_switch_down", 11, 3]
+            }
+          ]
+        },
+        {
+          "label": "KKUK",
+          "content": [
+            {
+              "label": "Enable",
+              "type": "toggle",
+              "content": ["id_qmk_kkuk_enable", 12, 1]
+            },
+            {
+              "showIf": "{id_qmk_kkuk_enable} == 1",
+              "label": "First Delay Time",
+              "type": "dropdown",
+              "options": [
+                ["50 ms", 5], ["100 ms", 10], ["150 ms", 15], ["200 ms", 20], ["250 ms", 25], ["300 ms", 30]
+              ],
+              "content": ["id_qmk_kkuk_delay_time", 12, 2]
+            },
+            {
+              "showIf": "{id_qmk_kkuk_enable} == 1",
+              "label": "Repeat Time",
+              "type": "dropdown",
+              "options": [
+                ["50 ms", 5], ["60 ms", 6], ["70 ms", 7], ["80 ms", 8], ["90 ms", 9], ["100 ms", 10], ["200 ms", 20]
+              ],
+              "content": ["id_qmk_kkuk_repeat_time", 12, 3]
+            }
+          ]
+        },
+        {
+          "label": "DEBOUNCE",
+          "content": [
+            {
+              "label": "Debounce Mode",
+              "type": "dropdown",
+              "content": ["id_qmk_debounce_mode", 14, 1],
+              "options": [
+                ["Balanced", 0], ["Fast", 1], ["Advanced", 2]
+              ]
+            },
+            {
+              "showIf": "{id_qmk_debounce_mode} == 0",
+              "label": "Press & Release Delay",
+              "type": "dropdown",
+              "content": ["id_qmk_debounce_time_single", 14, 2],
+              "options": [
+                ["1 ms", 1], ["2 ms", 2], ["3 ms", 3], ["4 ms", 4], ["5 ms", 5], ["6 ms", 6], ["7 ms", 7], ["8 ms", 8],
+                ["9 ms", 9], ["10 ms", 10], ["11 ms", 11], ["12 ms", 12], ["13 ms", 13], ["14 ms", 14], ["15 ms", 15],
+                ["16 ms", 16], ["17 ms", 17], ["18 ms", 18], ["19 ms", 19], ["20 ms", 20], ["21 ms", 21], ["22 ms", 22],
+                ["23 ms", 23], ["24 ms", 24], ["25 ms", 25], ["26 ms", 26], ["27 ms", 27], ["28 ms", 28], ["29 ms", 29],
+                ["30 ms", 30]
+              ]
+            },
+            {
+              "showIf": "{id_qmk_debounce_mode} == 2",
+              "label": "Press Delay",
+              "type": "dropdown",
+              "content": ["id_qmk_debounce_time_pre", 14, 3],
+              "options": [
+                ["1 ms", 1], ["2 ms", 2], ["3 ms", 3], ["4 ms", 4], ["5 ms", 5], ["6 ms", 6], ["7 ms", 7], ["8 ms", 8],
+                ["9 ms", 9], ["10 ms", 10], ["11 ms", 11], ["12 ms", 12], ["13 ms", 13], ["14 ms", 14], ["15 ms", 15],
+                ["16 ms", 16], ["17 ms", 17], ["18 ms", 18], ["19 ms", 19], ["20 ms", 20], ["21 ms", 21], ["22 ms", 22],
+                ["23 ms", 23], ["24 ms", 24], ["25 ms", 25], ["26 ms", 26], ["27 ms", 27], ["28 ms", 28], ["29 ms", 29],
+                ["30 ms", 30]
+              ]
+            },
+            {
+              "showIf": "{id_qmk_debounce_mode} == 1",
+              "label": "Press & Release Cooldown",
+              "type": "dropdown",
+              "content": ["id_qmk_debounce_time_post", 14, 4],
+              "options": [
+                ["1 ms", 1], ["2 ms", 2], ["3 ms", 3], ["4 ms", 4], ["5 ms", 5], ["6 ms", 6], ["7 ms", 7], ["8 ms", 8],
+                ["9 ms", 9], ["10 ms", 10], ["11 ms", 11], ["12 ms", 12], ["13 ms", 13], ["14 ms", 14], ["15 ms", 15],
+                ["16 ms", 16], ["17 ms", 17], ["18 ms", 18], ["19 ms", 19], ["20 ms", 20], ["21 ms", 21], ["22 ms", 22],
+                ["23 ms", 23], ["24 ms", 24], ["25 ms", 25], ["26 ms", 26], ["27 ms", 27], ["28 ms", 28], ["29 ms", 29],
+                ["30 ms", 30]
+              ]
+            },
+            {
+              "showIf": "{id_qmk_debounce_mode} == 2",
+              "label": "Release Delay",
+              "type": "dropdown",
+              "content": ["id_qmk_debounce_time_post", 14, 4],
+              "options": [
+                ["1 ms", 1], ["2 ms", 2], ["3 ms", 3], ["4 ms", 4], ["5 ms", 5], ["6 ms", 6], ["7 ms", 7], ["8 ms", 8],
+                ["9 ms", 9], ["10 ms", 10], ["11 ms", 11], ["12 ms", 12], ["13 ms", 13], ["14 ms", 14], ["15 ms", 15],
+                ["16 ms", 16], ["17 ms", 17], ["18 ms", 18], ["19 ms", 19], ["20 ms", 20], ["21 ms", 21], ["22 ms", 22],
+                ["23 ms", 23], ["24 ms", 24], ["25 ms", 25], ["26 ms", 26], ["27 ms", 27], ["28 ms", 28], ["29 ms", 29],
+                ["30 ms", 30]
+              ]
+            }
+          ]
+        },
+        {
+          "label": "TAPPING",
+          "content": [
+            {
+              "label": "Global Tapping Term",
+              "type": "dropdown",
+              "content": ["id_qmk_tapping_global_term", 15, 1],
+              "options": [
+                ["100 ms", 10], ["120 ms", 12], ["140 ms", 14], ["160 ms", 16], ["180 ms", 18], ["200 ms", 20],
+                ["220 ms", 22], ["240 ms", 24], ["260 ms", 26], ["280 ms", 28], ["300 ms", 30], ["320 ms", 32],
+                ["340 ms", 34], ["360 ms", 36], ["380 ms", 38], ["400 ms", 40], ["420 ms", 42], ["440 ms", 44],
+                ["460 ms", 46], ["480 ms", 48], ["500 ms", 50]
+              ]
+            },
+            {
+              "showIf": "{id_qmk_tapping_hold_on_other_key_press} == 0",
+              "label": "Permissive Hold",
+              "type": "toggle",
+              "content": ["id_qmk_tapping_permissive_hold", 15, 2]
+            },
+            {
+              "label": "Hold on Other Key Press",
+              "type": "toggle",
+              "content": ["id_qmk_tapping_hold_on_other_key_press", 15, 3]
+            },
+            {
+              "label": "Retro Tapping",
+              "type": "toggle",
+              "content": ["id_qmk_tapping_retro_tapping", 15, 4]
+            }
+          ]
+        },
+        {
+          "label": "MOUSE",
+          "content": [
+            {
+              "label": "Cursor Acceleration",
+              "type": "dropdown",
+              "content": ["id_qmk_mousekey_cursor_acceleration", 17, 3],
+              "options": [
+                ["Off", 0], ["0.5 s", 10], ["0.75 s", 15], ["1.0 s", 20], ["1.25 s", 25], ["1.5 s", 30],
+                ["2.0 s", 40]
+              ]
+            },
+            {
+              "showIf": "{id_qmk_mousekey_cursor_acceleration} == 0",
+              "label": "Cursor Speed",
+              "type": "dropdown",
+              "content": ["id_qmk_mousekey_cursor_min_speed", 17, 1],
+              "options": [
+                ["2 px", 2], ["4 px", 4], ["6 px", 6], ["8 px", 8], ["10 px", 10], ["12 px", 12], ["16 px", 16],
+                ["24 px", 24]
+              ]
+            },
+            {
+              "showIf": "{id_qmk_mousekey_cursor_acceleration} != 0",
+              "label": "Cursor Start Speed",
+              "type": "dropdown",
+              "content": ["id_qmk_mousekey_cursor_min_speed", 17, 1],
+              "options": [
+                ["1 px", 1], ["2 px", 2], ["4 px", 4], ["8 px", 8]
+              ]
+            },
+            {
+              "showIf": "{id_qmk_mousekey_cursor_acceleration} != 0",
+              "label": "Cursor Top Speed",
+              "type": "dropdown",
+              "content": ["id_qmk_mousekey_cursor_max_speed", 17, 2],
+              "options": [
+                ["8 px", 8], ["16 px", 16], ["24 px", 24], ["32 px", 32], ["48 px", 48], ["64 px", 64]
+              ]
+            },
+            {
+              "label": "Cursor Steps Per Second",
+              "type": "dropdown",
+              "content": ["id_qmk_mousekey_cursor_interval", 17, 4],
+              "options": [
+                ["200 /s", 5], ["125 /s", 8], ["100 /s", 10], ["63 /s", 16],
+                ["50 /s", 20]
+              ]
+            },
+            {
+              "label": "Wheel Rate",
+              "type": "dropdown",
+              "content": ["id_qmk_mousekey_wheel_interval", 17, 5],
+              "options": [
+                ["50 /s", 20], ["25 /s", 40], ["13 /s", 80], ["6 /s", 160]
+              ]
+            },
+            {
+              "label": "Wheel Acceleration",
+              "type": "dropdown",
+              "content": ["id_qmk_mousekey_wheel_acceleration", 17, 6],
+              "options": [
+                ["Off", 0], ["Mild", 1], ["Strong", 2]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "TAPDANCE",
+      "content": [
+        {
+          "label": "TD0",
+          "content": [
+            {
+              "showIf": "0",
+              "label": "Mode state",
+              "type": "label",
+              "content": ["id_qmk_tapdance_1_mode", 16, 49]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_1_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_1_tap", 16, 1]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_1_hold", 16, 2]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_1_dtap", 16, 3]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_1_thold", 16, 4]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_1_term", 16, 5],
+                  "options": [
+                    ["100 ms", 10],
+                    ["120 ms", 12],
+                    ["140 ms", 14],
+                    ["160 ms", 16],
+                    ["180 ms", 18],
+                    ["200 ms", 20],
+                    ["220 ms", 22],
+                    ["240 ms", 24],
+                    ["260 ms", 26],
+                    ["280 ms", 28],
+                    ["300 ms", 30],
+                    ["320 ms", 32],
+                    ["340 ms", 34],
+                    ["360 ms", 36],
+                    ["380 ms", 38],
+                    ["400 ms", 40],
+                    ["420 ms", 42],
+                    ["440 ms", 44],
+                    ["460 ms", 46],
+                    ["480 ms", 48],
+                    ["500 ms", 50]
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
+            }
+          ]
+        },
+        {
+          "label": "TD1",
+          "content": [
+            {
+              "showIf": "0",
+              "label": "Mode state",
+              "type": "label",
+              "content": ["id_qmk_tapdance_2_mode", 16, 50]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_2_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_2_tap", 16, 6]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_2_hold", 16, 7]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_2_dtap", 16, 8]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_2_thold", 16, 9]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_2_term", 16, 10],
+                  "options": [
+                    ["100 ms", 10],
+                    ["120 ms", 12],
+                    ["140 ms", 14],
+                    ["160 ms", 16],
+                    ["180 ms", 18],
+                    ["200 ms", 20],
+                    ["220 ms", 22],
+                    ["240 ms", 24],
+                    ["260 ms", 26],
+                    ["280 ms", 28],
+                    ["300 ms", 30],
+                    ["320 ms", 32],
+                    ["340 ms", 34],
+                    ["360 ms", 36],
+                    ["380 ms", 38],
+                    ["400 ms", 40],
+                    ["420 ms", 42],
+                    ["440 ms", 44],
+                    ["460 ms", 46],
+                    ["480 ms", 48],
+                    ["500 ms", 50]
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
+            }
+          ]
+        },
+        {
+          "label": "TD2",
+          "content": [
+            {
+              "showIf": "0",
+              "label": "Mode state",
+              "type": "label",
+              "content": ["id_qmk_tapdance_3_mode", 16, 51]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_3_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_3_tap", 16, 11]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_3_hold", 16, 12]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_3_dtap", 16, 13]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_3_thold", 16, 14]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_3_term", 16, 15],
+                  "options": [
+                    ["100 ms", 10],
+                    ["120 ms", 12],
+                    ["140 ms", 14],
+                    ["160 ms", 16],
+                    ["180 ms", 18],
+                    ["200 ms", 20],
+                    ["220 ms", 22],
+                    ["240 ms", 24],
+                    ["260 ms", 26],
+                    ["280 ms", 28],
+                    ["300 ms", 30],
+                    ["320 ms", 32],
+                    ["340 ms", 34],
+                    ["360 ms", 36],
+                    ["380 ms", 38],
+                    ["400 ms", 40],
+                    ["420 ms", 42],
+                    ["440 ms", 44],
+                    ["460 ms", 46],
+                    ["480 ms", 48],
+                    ["500 ms", 50]
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
+            }
+          ]
+        },
+        {
+          "label": "TD3",
+          "content": [
+            {
+              "showIf": "0",
+              "label": "Mode state",
+              "type": "label",
+              "content": ["id_qmk_tapdance_4_mode", 16, 52]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_4_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_4_tap", 16, 16]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_4_hold", 16, 17]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_4_dtap", 16, 18]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_4_thold", 16, 19]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_4_term", 16, 20],
+                  "options": [
+                    ["100 ms", 10],
+                    ["120 ms", 12],
+                    ["140 ms", 14],
+                    ["160 ms", 16],
+                    ["180 ms", 18],
+                    ["200 ms", 20],
+                    ["220 ms", 22],
+                    ["240 ms", 24],
+                    ["260 ms", 26],
+                    ["280 ms", 28],
+                    ["300 ms", 30],
+                    ["320 ms", 32],
+                    ["340 ms", 34],
+                    ["360 ms", 36],
+                    ["380 ms", 38],
+                    ["400 ms", 40],
+                    ["420 ms", 42],
+                    ["440 ms", 44],
+                    ["460 ms", 46],
+                    ["480 ms", 48],
+                    ["500 ms", 50]
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
+            }
+          ]
+        },
+        {
+          "label": "TD4",
+          "content": [
+            {
+              "showIf": "0",
+              "label": "Mode state",
+              "type": "label",
+              "content": ["id_qmk_tapdance_5_mode", 16, 53]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_5_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_5_tap", 16, 21]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_5_hold", 16, 22]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_5_dtap", 16, 23]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_5_thold", 16, 24]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_5_term", 16, 25],
+                  "options": [
+                    ["100 ms", 10],
+                    ["120 ms", 12],
+                    ["140 ms", 14],
+                    ["160 ms", 16],
+                    ["180 ms", 18],
+                    ["200 ms", 20],
+                    ["220 ms", 22],
+                    ["240 ms", 24],
+                    ["260 ms", 26],
+                    ["280 ms", 28],
+                    ["300 ms", 30],
+                    ["320 ms", 32],
+                    ["340 ms", 34],
+                    ["360 ms", 36],
+                    ["380 ms", 38],
+                    ["400 ms", 40],
+                    ["420 ms", 42],
+                    ["440 ms", 44],
+                    ["460 ms", 46],
+                    ["480 ms", 48],
+                    ["500 ms", 50]
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
+            }
+          ]
+        },
+        {
+          "label": "TD5",
+          "content": [
+            {
+              "showIf": "0",
+              "label": "Mode state",
+              "type": "label",
+              "content": ["id_qmk_tapdance_6_mode", 16, 54]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_6_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_6_tap", 16, 26]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_6_hold", 16, 27]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_6_dtap", 16, 28]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_6_thold", 16, 29]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_6_term", 16, 30],
+                  "options": [
+                    ["100 ms", 10],
+                    ["120 ms", 12],
+                    ["140 ms", 14],
+                    ["160 ms", 16],
+                    ["180 ms", 18],
+                    ["200 ms", 20],
+                    ["220 ms", 22],
+                    ["240 ms", 24],
+                    ["260 ms", 26],
+                    ["280 ms", 28],
+                    ["300 ms", 30],
+                    ["320 ms", 32],
+                    ["340 ms", 34],
+                    ["360 ms", 36],
+                    ["380 ms", 38],
+                    ["400 ms", 40],
+                    ["420 ms", 42],
+                    ["440 ms", 44],
+                    ["460 ms", 46],
+                    ["480 ms", 48],
+                    ["500 ms", 50]
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
+            }
+          ]
+        },
+        {
+          "label": "TD6",
+          "content": [
+            {
+              "showIf": "0",
+              "label": "Mode state",
+              "type": "label",
+              "content": ["id_qmk_tapdance_7_mode", 16, 55]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_7_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_7_tap", 16, 31]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_7_hold", 16, 32]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_7_dtap", 16, 33]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_7_thold", 16, 34]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_7_term", 16, 35],
+                  "options": [
+                    ["100 ms", 10],
+                    ["120 ms", 12],
+                    ["140 ms", 14],
+                    ["160 ms", 16],
+                    ["180 ms", 18],
+                    ["200 ms", 20],
+                    ["220 ms", 22],
+                    ["240 ms", 24],
+                    ["260 ms", 26],
+                    ["280 ms", 28],
+                    ["300 ms", 30],
+                    ["320 ms", 32],
+                    ["340 ms", 34],
+                    ["360 ms", 36],
+                    ["380 ms", 38],
+                    ["400 ms", 40],
+                    ["420 ms", 42],
+                    ["440 ms", 44],
+                    ["460 ms", 46],
+                    ["480 ms", 48],
+                    ["500 ms", 50]
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
+            }
+          ]
+        },
+        {
+          "label": "TD7",
+          "content": [
+            {
+              "showIf": "0",
+              "label": "Mode state",
+              "type": "label",
+              "content": ["id_qmk_tapdance_8_mode", 16, 56]
+            },
+            {
+              "showIf": "{id_qmk_tapdance_8_mode} == 0",
+              "content": [
+                {
+                  "label": "On Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_8_tap", 16, 36]
+                },
+                {
+                  "label": "On Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_8_hold", 16, 37]
+                },
+                {
+                  "label": "On Double Tap",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_8_dtap", 16, 38]
+                },
+                {
+                  "label": "Tap+Hold",
+                  "type": "keycode",
+                  "content": ["id_qmk_tapdance_8_thold", 16, 39]
+                },
+                {
+                  "label": "Term",
+                  "type": "dropdown",
+                  "content": ["id_qmk_tapdance_8_term", 16, 40],
+                  "options": [
+                    ["100 ms", 10],
+                    ["120 ms", 12],
+                    ["140 ms", 14],
+                    ["160 ms", 16],
+                    ["180 ms", 18],
+                    ["200 ms", 20],
+                    ["220 ms", 22],
+                    ["240 ms", 24],
+                    ["260 ms", 26],
+                    ["280 ms", 28],
+                    ["300 ms", 30],
+                    ["320 ms", 32],
+                    ["340 ms", 34],
+                    ["360 ms", 36],
+                    ["380 ms", 38],
+                    ["400 ms", 40],
+                    ["420 ms", 42],
+                    ["440 ms", 44],
+                    ["460 ms", 46],
+                    ["480 ms", 48],
+                    ["500 ms", 50]
+                  ]
+                }
+              ]
+            },
+            {
+              "label": "Advanced settings",
+              "type": "label",
+              "content": ["Visit usekb.cc"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "SYSTEM",
+      "content": [
+        {
+          "label": "VERSION",
+          "content": [
+            {
+              "label": "VERSION",
+              "type": "label",
+              "content": ["id_qmk_firmware_version", 8, 5]
+            }
+          ]
+        },
+        {
+          "label": "USB POLLING",
+          "content": [
+            {
+              "label": "Boot Polling Mode",
+              "type": "dropdown",
+              "content": ["id_qmk_usb_bootmode", 13, 1],
+              "options": [
+                ["8 kHz (HS)", 0], ["4 kHz (HS)", 1], ["2 kHz (HS)", 2], ["1 kHz (FS)", 3]
+              ]
+            },
+            {
+              "label": "Apply Selected Mode",
+              "type": "toggle",
+              "content": ["id_qmk_usb_bootmode_apply", 13, 2]
+            }
+          ]
+        },
+        {
+          "label": "SLEEP",
+          "content": [
+            {
+              "label": "RGB Sleep",
+              "type": "toggle",
+              "content": ["id_qmk_rgb_sleep_enable", 18, 3]
+            },
+            {
+              "label": "RGB Sleep Timeout",
+              "type": "dropdown",
+              "content": ["id_qmk_rgb_sleep_timeout", 18, 1],
+              "showIf": "{id_qmk_rgb_sleep_enable} == 1",
+              "options": [
+                ["1 min", 1], ["3 min", 3], ["5 min", 5], ["10 min", 10], ["30 min", 30], ["60 min", 60]
+              ]
+            }
+          ]
+        },
+        {
+          "label": "BOOT",
+          "content": [
+            {
+              "label": "Jump To BOOT",
+              "type": "toggle",
+              "content": ["id_qmk_system_dfu", 9, 1]
+            }
+          ]
+        },
+        {
+          "label": "EEPROM",
+          "content": [
+            {
+              "label": "EEPROM Clean Confirm 1",
+              "type": "toggle",
+              "content": ["id_qmk_system_reset_0", 9, 2]
+            },
+            {
+              "label": "EEPROM Clean Confirm 2",
+              "type": "toggle",
+              "content": ["id_qmk_system_reset_1", 9, 3]
+            },
+            {
+              "label": "Are you sure ?",
+              "type": "toggle",
+              "content": ["id_qmk_system_reset_done", 9, 4]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "layouts": {
+    "keymap": [
+      [
+        { "c": "#777777" },
+        "0,0",
+        { "c": "#cccccc" },
+        "0,1",
+        "0,2",
+        "0,3",
+        "0,4",
+        "0,5",
+        "0,6",
+        "0,7",
+        "0,8",
+        "0,9",
+        "0,10",
+        "0,11",
+        "0,12",
+        { "c": "#aaaaaa", "w": 2 },
+        "0,13",
+        { "x": 0.25, "c": "#cccccc" },
+        "0,14"
+      ],
+      [
+        { "c": "#aaaaaa", "w": 1.5 },
+        "1,0",
+        { "c": "#cccccc" },
+        "1,1",
+        "1,2",
+        "1,3",
+        "1,4",
+        "1,5",
+        "1,6",
+        "1,7",
+        "1,8",
+        "1,9",
+        "1,10",
+        "1,11",
+        "1,12",
+        { "w": 1.5 },
+        "1,13",
+        { "x": 0.25 },
+        "1,14"
+      ],
+      [
+        { "c": "#aaaaaa", "w": 1.75 },
+        "2,0",
+        { "c": "#cccccc" },
+        "2,1",
+        "2,2",
+        "2,3",
+        "2,4",
+        "2,5",
+        "2,6",
+        "2,7",
+        "2,8",
+        "2,9",
+        "2,10",
+        "2,11",
+        { "c": "#777777", "w": 2.25 },
+        "2,13"
+      ],
+      [
+        { "c": "#aaaaaa", "w": 2.25 },
+        "3,0",
+        { "c": "#cccccc" },
+        "3,2",
+        "3,3",
+        "3,4",
+        "3,5",
+        "3,6",
+        "3,7",
+        "3,8",
+        "3,9",
+        "3,10",
+        "3,11",
+        { "c": "#aaaaaa", "w": 1.75 },
+        "3,12"
+      ],
+      [
+        { "y": -0.75, "x": 14.25, "c": "#777777" },
+        "3,13"
+      ],
+      [
+        { "y": -0.25, "c": "#aaaaaa", "w": 1.25 },
+        "4,0",
+        { "w": 1.25 },
+        "4,1",
+        { "w": 1.25 },
+        "4,2",
+        { "x": 6.75, "w": 1.25 },
+        "4,10",
+        { "w": 1.25 },
+        "4,11"
+      ],
+      [
+        { "y": -0.75, "x": 4, "c": "#cccccc", "w": 6.25 },
+        "4,7",
+        { "x": 3, "c": "#777777" },
+        "4,12",
+        "4,13",
+        "4,14"
+      ]
+    ]
+  }
+}
