@@ -17,6 +17,7 @@ extern "C" {
 
 
 #include "hw_def.h"
+#include "../../../ap/modules/qmk/port/era_wire.h"
 
 #ifdef _USE_HW_USB
 
@@ -60,10 +61,10 @@ typedef enum UsbType
 
 typedef enum UsbBootMode                               // V250923R1 Persisted USB polling profile
 {
-  USB_BOOT_MODE_FS_1K = 0,
-  USB_BOOT_MODE_HS_2K,
-  USB_BOOT_MODE_HS_4K,
-  USB_BOOT_MODE_HS_8K,
+  USB_BOOT_MODE_FS_1K = ERA_WIRE_USB_POLLING_MODES_FS_1K,
+  USB_BOOT_MODE_HS_2K = ERA_WIRE_USB_POLLING_MODES_HS_2K,
+  USB_BOOT_MODE_HS_4K = ERA_WIRE_USB_POLLING_MODES_HS_4K,
+  USB_BOOT_MODE_HS_8K = ERA_WIRE_USB_POLLING_MODES_HS_8K,
   USB_BOOT_MODE_MAX,
 } UsbBootMode_t;
 

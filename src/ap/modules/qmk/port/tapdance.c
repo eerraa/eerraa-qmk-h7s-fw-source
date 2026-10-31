@@ -15,16 +15,16 @@
 
 #define TAPDANCE_SIGNATURE        (0x4E414454UL)   // "TDAN" // V251124R8: Tap Dance EEPROM 시그니처
 #define TAPDANCE_VERSION          (1U)
-#define TAPDANCE_VALUE_STRIDE     (5U)
+#define TAPDANCE_VALUE_STRIDE     (ERA_WIRE_TAPDANCE_H7S_TAP_2 - ERA_WIRE_TAPDANCE_H7S_TAP_1)
 #define TAPDANCE_VALUE_MAX_ID     (TAPDANCE_SLOT_COUNT * TAPDANCE_VALUE_STRIDE)
-#define TAPDANCE_MODE_ID_BASE    (49U)
-#define TAPDANCE_MODE_TAG        (0xD2U)
-#define TAPDANCE_HOLD_TERM_ID_BASE (57U)
-#define TAPDANCE_HOLD_OTHER_ID_BASE (65U)
-#define TAPDANCE_TIMING_TAG (0xD3U)
+#define TAPDANCE_MODE_ID_BASE    ERA_WIRE_TAPDANCE_H7S_MODE_1
+#define TAPDANCE_MODE_TAG        ERA_WIRE_TAPDANCE_MARKERS_MODE
+#define TAPDANCE_HOLD_TERM_ID_BASE ERA_WIRE_TAPDANCE_H7S_HOLD_TERM_1
+#define TAPDANCE_HOLD_OTHER_ID_BASE ERA_WIRE_TAPDANCE_H7S_HOLD_OTHER_1
+#define TAPDANCE_TIMING_TAG ERA_WIRE_TAPDANCE_MARKERS_TIMING
 #define TAPDANCE_TIMING_SIGNATURE (0x4D544454UL)
-#define TAPDANCE_FIELD_TERM       (4U)
-#define TAPDANCE_EXACT_TERM_ID_BASE (41U)                 // V260821R1: TD0 exact = 41 … TD7 exact = 48
+#define TAPDANCE_FIELD_TERM       (ERA_WIRE_TAPDANCE_H7S_TERM_1 - ERA_WIRE_TAPDANCE_H7S_TAP_1)
+#define TAPDANCE_EXACT_TERM_ID_BASE ERA_WIRE_TAPDANCE_H7S_TERM_EXACT_1
 #define TAPDANCE_EXACT_TERM_ID_MAX  (TAPDANCE_EXACT_TERM_ID_BASE + TAPDANCE_SLOT_COUNT - 1U)
 
 enum
@@ -404,7 +404,7 @@ static bool tapdance_has_override(const tapdance_runtime_state_t *runtime, uint8
 
 uint16_t tapdance_decision_term(uint8_t slot, uint8_t runtime_index, bool pressed)
 {
-  if (runtime_index < TAP_DANCE_MAX_SIMULTANEOUS && tapdance_runtime[runtime_index].mode != 0U)
+  if (runtime_index < TAP_DANCE_MAX_SIMULTANEOUS && tapdance_runtime[runtime_index].mode != ERA_WIRE_TAPDANCE_MODES_LEGACY)
   {
     const tapdance_runtime_state_t *runtime = &tapdance_runtime[runtime_index];
     return pressed ? runtime->hold_ms : runtime->term_ms;
@@ -416,7 +416,7 @@ bool tapdance_hold_on_interrupt(uint8_t runtime_index, uint8_t count, bool press
 {
   if (!pressed || runtime_index >= TAP_DANCE_MAX_SIMULTANEOUS) return false;
   const tapdance_runtime_state_t *runtime = &tapdance_runtime[runtime_index];
-  if (runtime->mode == 0U || !runtime->hold_on_other) return false;
+  if (runtime->mode == ERA_WIRE_TAPDANCE_MODES_LEGACY || !runtime->hold_on_other) return false;
   if (count == 1U) return !runtime->direct && tapdance_has_override(runtime, 1);
   return count == 2U && (tapdance_has_override(runtime, 3) || tapdance_has_override(runtime, 1));
 }
@@ -459,7 +459,7 @@ static void tapdance_on_each_tap(tap_dance_state_t *state, void *user_data)
     runtime->hold_ms = tapdance_timing.hold_ms[user->slot_index] ? tapdance_timing.hold_ms[user->slot_index] : entry.term_ms;
     runtime->hold_on_other = (tapdance_timing.hold_on_other >> user->slot_index) & 1U;
     memcpy(runtime->actions, tapdance_state[user->slot_index].actions, sizeof(runtime->actions));
-    runtime->direct = runtime->mode == 2U || (runtime->mode == 1U &&
+    runtime->direct = runtime->mode == ERA_WIRE_TAPDANCE_MODES_ON_PRESS || (runtime->mode == ERA_WIRE_TAPDANCE_MODES_AFTER_DECISION &&
         !tapdance_has_override(runtime, 1) && !tapdance_has_override(runtime, 2) && !tapdance_has_override(runtime, 3));
   }
   if (runtime->direct)
@@ -521,7 +521,7 @@ static void tapdance_on_dance_finished(tap_dance_state_t *state, void *user_data
   step = tapdance_step(state);
   runtime = &tapdance_runtime[state->runtime_index];
 
-  if (runtime->mode != 0U)
+  if (runtime->mode != ERA_WIRE_TAPDANCE_MODES_LEGACY)
   {
     /* Immediate mode has already emitted the first physical press. All
      * other decisions use the captured actions, including explicit KC_NO. */
@@ -678,7 +678,7 @@ static void tapdance_on_reset(tap_dance_state_t *state, void *user_data)
   runtime->active_keycode = KC_NO;
   runtime->active_is_tap  = false;
   runtime->direct = false;
-  runtime->mode = 0;
+  runtime->mode = ERA_WIRE_TAPDANCE_MODES_LEGACY;
 }
 
 static bool tapdance_is_exact_term_id(uint8_t value_id)
@@ -729,7 +729,7 @@ static bool tapdance_is_storage_valid(const tapdance_storage_t *storage)
     for (uint8_t slot = 0; slot < TAPDANCE_SLOT_COUNT; ++slot)
     {
       uint8_t mode = (storage->reserved[slot < 4U ? 0 : 2] >> ((slot % 4U) * 2U)) & 3U;
-      if (mode == 3U || (mode == 2U && storage->slots[slot].actions[1] != KC_TRANSPARENT)) return false;
+      if (mode > ERA_WIRE_TAPDANCE_MODES_ON_PRESS || (mode == ERA_WIRE_TAPDANCE_MODES_ON_PRESS && storage->slots[slot].actions[1] != KC_TRANSPARENT)) return false;
     }
   }
   return true;
@@ -803,7 +803,7 @@ bool tapdance_should_finish_immediate(uint8_t slot_index, uint8_t tap_count, uin
     return false;
   }
 
-  if (runtime_index < TAP_DANCE_MAX_SIMULTANEOUS && tapdance_runtime[runtime_index].mode != 0U)
+  if (runtime_index < TAP_DANCE_MAX_SIMULTANEOUS && tapdance_runtime[runtime_index].mode != ERA_WIRE_TAPDANCE_MODES_LEGACY)
   {
     const tapdance_runtime_state_t *runtime = &tapdance_runtime[runtime_index];
     return tap_count == 2U || (tap_count == 1U && !tapdance_has_override(runtime, 2) && !tapdance_has_override(runtime, 3));
@@ -855,7 +855,7 @@ static bool tapdance_set_value(uint8_t value_id, uint8_t *value_data, uint8_t le
     }
     else
     {
-      if (value_data[0] > 1U) return false;
+      if (value_data[0] > ERA_WIRE_TAPDANCE_HOLD_OTHER_ENABLED) return false;
       uint8_t mask = 1U << (value_id - TAPDANCE_HOLD_OTHER_ID_BASE);
       uint8_t next = value_data[0] ? tapdance_timing.hold_on_other | mask : tapdance_timing.hold_on_other & ~mask;
       changed = next != tapdance_timing.hold_on_other;
@@ -868,7 +868,7 @@ static bool tapdance_set_value(uint8_t value_id, uint8_t *value_data, uint8_t le
   if (value_id >= TAPDANCE_MODE_ID_BASE && value_id < TAPDANCE_MODE_ID_BASE + TAPDANCE_SLOT_COUNT)
   {
     slot_index = value_id - TAPDANCE_MODE_ID_BASE;
-    if (value_data[0] > 2U || (value_data[0] == 2U && tapdance_storage.slots[slot_index].actions[1] != KC_TRANSPARENT)) return false;
+    if (value_data[0] > ERA_WIRE_TAPDANCE_MODES_ON_PRESS || (value_data[0] == ERA_WIRE_TAPDANCE_MODES_ON_PRESS && tapdance_storage.slots[slot_index].actions[1] != KC_TRANSPARENT)) return false;
     changed = tapdance_mode(slot_index) != value_data[0];
     tapdance_store_mode(slot_index, value_data[0]);
     tapdance_commit(changed);
@@ -904,7 +904,7 @@ static bool tapdance_set_value(uint8_t value_id, uint8_t *value_data, uint8_t le
   if (field_index < TAPDANCE_ACTION_COUNT)
   {
     keycode = ((uint16_t)value_data[0] << 8) | (uint16_t)value_data[1];
-    if (field_index == 1U && tapdance_mode(slot_index) == 2U && keycode != KC_TRANSPARENT) return false;
+    if (field_index == 1U && tapdance_mode(slot_index) == ERA_WIRE_TAPDANCE_MODES_ON_PRESS && keycode != KC_TRANSPARENT) return false;
     changed = (tapdance_storage.slots[slot_index].actions[field_index] != keycode);
     tapdance_storage.slots[slot_index].actions[field_index] = keycode;
   }

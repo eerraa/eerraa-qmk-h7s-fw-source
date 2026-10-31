@@ -18,6 +18,7 @@
 
 #include "eeconfig.h" // for EECONFIG_SIZE
 #include "action.h"
+#include "keycodes.h"
 
 // Keyboard level code can change where VIA stores the magic.
 // The magic is the build date YYMMDD encoded as BCD in 3 bytes,
@@ -59,7 +60,7 @@
 
 // This is changed only when the command IDs change,
 // so VIA Configurator can detect compatible firmware.
-#define VIA_PROTOCOL_VERSION 0x000C
+#define VIA_PROTOCOL_VERSION ERA_WIRE_VIA_PROTOCOL_VERSION
 
 // This is a version number for the firmware for the keyboard.
 // It can be used to ensure the VIA keyboard definition and the firmware
@@ -102,8 +103,11 @@ enum via_keyboard_value_id {
     id_switch_matrix_state = 0x03,
     id_firmware_version    = 0x04,
     id_device_indication   = 0x05,
-    id_era_state_sync      = 0x06,  // V260821R1: GET_KEYBOARD_VALUE 리비전 봉투
-    // 0x07 is reserved for the retired ERA USB diagnostics selector.
+    id_keycodes_version    = 0x06,
+};
+
+enum era_keyboard_value_id {
+    id_era_state_sync = ERA_WIRE_STATE_SYNC_SELECTORS_CURRENT,
 };
 
 enum via_channel_id {
@@ -113,18 +117,35 @@ enum via_channel_id {
     id_qmk_rgb_matrix_channel = 3,
     id_qmk_audio_channel      = 4,
     id_qmk_led_matrix_channel = 5,
-    id_qmk_version            = 8,
-    id_qmk_system             = 9,
-    id_qmk_kill_switch_lr     = 10,
-    id_qmk_kill_switch_ud     = 11,
-    id_qmk_kkuk               = 12,
-    id_qmk_usb_polling        = 13,  // V251108R1: BootMode 전용 채널. value id 3(구 USB 모니터 토글)은 V260823R2에서 폐기 — 재사용 금지, docs/contract_usb.md
-    id_qmk_key_response       = 14,  // V251115R1: VIA 디바운스 프로필 제어 채널
-    id_qmk_tapping            = 15,  // V251123R4: VIA TAPPING 제어 채널
-    id_qmk_tapdance           = 16,  // V251124R8: VIA TAPDANCE 제어 채널
-    id_qmk_mousekey           = 17,  // V260823R1: VIA MOUSE 제어 채널 (참조 QMK 13번은 H7S에서 USB POLLING이 점유)
-    id_qmk_rgb_sleep          = 18,  // V260901R1: VIA RGB SLEEP 타임아웃 채널
 };
+
+enum era_channel_id {
+    id_qmk_version            = ERA_WIRE_CHANNELS_H7S_VERSION,
+    id_qmk_system             = ERA_WIRE_CHANNELS_H7S_SYSTEM,
+    id_qmk_kill_switch_lr     = ERA_WIRE_CHANNELS_H7S_SOCD_LR,
+    id_qmk_kill_switch_ud     = ERA_WIRE_CHANNELS_H7S_SOCD_UD,
+    id_qmk_kkuk               = ERA_WIRE_CHANNELS_H7S_KKUK,
+    id_qmk_usb_polling        = ERA_WIRE_CHANNELS_H7S_USB_POLLING,
+    id_qmk_key_response       = ERA_WIRE_CHANNELS_H7S_DEBOUNCE,
+    id_qmk_tapping            = ERA_WIRE_CHANNELS_H7S_TAPPING,
+    id_qmk_tapdance           = ERA_WIRE_CHANNELS_H7S_TAPDANCE,
+    id_qmk_mousekey           = ERA_WIRE_CHANNELS_H7S_MOUSEKEY,
+    id_qmk_rgb_sleep          = ERA_WIRE_CHANNELS_H7S_RGB_SLEEP,
+};
+
+#ifdef __cplusplus
+#    define ERA_WIRE_ASSERT(condition, message) static_assert(condition, message)
+#else
+#    define ERA_WIRE_ASSERT(condition, message) _Static_assert(condition, message)
+#endif
+#define ERA_WIRE_ASSERT_OFFICIAL(name, value) ERA_WIRE_ASSERT(name == value, #name " differs from the ERA wire registry");
+ERA_WIRE_VIA_OFFICIAL_COMMANDS(ERA_WIRE_ASSERT_OFFICIAL)
+ERA_WIRE_VIA_OFFICIAL_KEYBOARD_VALUES(ERA_WIRE_ASSERT_OFFICIAL)
+ERA_WIRE_VIA_OFFICIAL_CHANNELS(ERA_WIRE_ASSERT_OFFICIAL)
+ERA_WIRE_ASSERT(VIA_PROTOCOL_VERSION == ERA_WIRE_VIA_PROTOCOL_VERSION, "VIA protocol version differs from the registry");
+ERA_WIRE_ASSERT(QMK_KEYCODES_VERSION_BCD == ERA_WIRE_VIA_KEYCODES_VERSION, "VIA keycodes version differs from the registry");
+#undef ERA_WIRE_ASSERT_OFFICIAL
+#undef ERA_WIRE_ASSERT
 
 enum via_qmk_backlight_value {
     id_qmk_backlight_brightness = 1,
@@ -136,7 +157,7 @@ enum via_qmk_rgblight_value {
     id_qmk_rgblight_effect       = 2,
     id_qmk_rgblight_effect_speed = 3,
     id_qmk_rgblight_color        = 4,
-    id_qmk_velocikey_toggle      = 5,  // V251123R1: VIA에서 Velocikey 토글 노출
+    id_qmk_velocikey_toggle      = ERA_WIRE_RGBLIGHT_H7S_VELOCIKEY,
 };
 
 enum via_qmk_rgb_matrix_value {
@@ -159,141 +180,140 @@ enum via_qmk_audio_value {
 
 // V251108R1: Brick60 USB POLLING 메뉴 value ID 매핑
 enum via_qmk_usb_polling_value {
-    id_qmk_usb_bootmode_select = 1,
-    id_qmk_usb_bootmode_apply  = 2,
-    // Value 3 remains reserved.
-    id_qmk_usb_polling_current = 4,
+    id_qmk_usb_bootmode_select = ERA_WIRE_USB_POLLING_H7S_BOOTMODE_SELECT,
+    id_qmk_usb_bootmode_apply  = ERA_WIRE_USB_POLLING_H7S_BOOTMODE_APPLY,
+    id_qmk_usb_polling_current = ERA_WIRE_USB_POLLING_H7S_CURRENT,
 };
 
 // V260901R1: 소비자 없는 STATUS를 제거하고 KEY RESPONSE value ID를 설정값 1~4로 한정
 enum via_qmk_key_response_value {
-    id_qmk_debounce_mode        = 1,
-    id_qmk_debounce_time_single = 2,
-    id_qmk_debounce_time_pre    = 3,
-    id_qmk_debounce_time_post   = 4,
+    id_qmk_debounce_mode        = ERA_WIRE_DEBOUNCE_MODE,
+    id_qmk_debounce_time_single = ERA_WIRE_DEBOUNCE_TIME_SINGLE,
+    id_qmk_debounce_time_pre    = ERA_WIRE_DEBOUNCE_TIME_PRE,
+    id_qmk_debounce_time_post   = ERA_WIRE_DEBOUNCE_TIME_POST,
 };
 
 // V251123R4: VIA TAPPING 설정 value ID 매핑
 enum via_qmk_tapping_value {
-    id_qmk_tapping_global_term             = 1,
-    id_qmk_tapping_permissive_hold         = 2,
-    id_qmk_tapping_hold_on_other_key_press = 3,
-    id_qmk_tapping_retro_tapping           = 4,
-    id_qmk_tapping_global_term_exact       = 5,  // V260821R1: 2-byte BE exact ms
+    id_qmk_tapping_global_term             = ERA_WIRE_TAPPING_GLOBAL_TERM,
+    id_qmk_tapping_permissive_hold         = ERA_WIRE_TAPPING_PERMISSIVE_HOLD,
+    id_qmk_tapping_hold_on_other_key_press = ERA_WIRE_TAPPING_HOLD_ON_OTHER_KEY_PRESS,
+    id_qmk_tapping_retro_tapping           = ERA_WIRE_TAPPING_RETRO_TAPPING,
+    id_qmk_tapping_global_term_exact       = ERA_WIRE_TAPPING_GLOBAL_TERM_EXACT,
 };
 
 // V251124R8: VIA TAPDANCE value ID 매핑
 enum via_qmk_tapdance_value {
-    id_qmk_tapdance_1_tap   = 1,
-    id_qmk_tapdance_1_hold  = 2,
-    id_qmk_tapdance_1_dtap  = 3,
-    id_qmk_tapdance_1_thold = 4,
-    id_qmk_tapdance_1_term  = 5,
+    id_qmk_tapdance_1_tap   = ERA_WIRE_TAPDANCE_H7S_TAP_1,
+    id_qmk_tapdance_1_hold  = ERA_WIRE_TAPDANCE_H7S_HOLD_1,
+    id_qmk_tapdance_1_dtap  = ERA_WIRE_TAPDANCE_H7S_DOUBLE_TAP_1,
+    id_qmk_tapdance_1_thold = ERA_WIRE_TAPDANCE_H7S_TAP_HOLD_1,
+    id_qmk_tapdance_1_term  = ERA_WIRE_TAPDANCE_H7S_TERM_1,
 
-    id_qmk_tapdance_2_tap   = 6,
-    id_qmk_tapdance_2_hold  = 7,
-    id_qmk_tapdance_2_dtap  = 8,
-    id_qmk_tapdance_2_thold = 9,
-    id_qmk_tapdance_2_term  = 10,
+    id_qmk_tapdance_2_tap   = ERA_WIRE_TAPDANCE_H7S_TAP_2,
+    id_qmk_tapdance_2_hold  = ERA_WIRE_TAPDANCE_H7S_HOLD_2,
+    id_qmk_tapdance_2_dtap  = ERA_WIRE_TAPDANCE_H7S_DOUBLE_TAP_2,
+    id_qmk_tapdance_2_thold = ERA_WIRE_TAPDANCE_H7S_TAP_HOLD_2,
+    id_qmk_tapdance_2_term  = ERA_WIRE_TAPDANCE_H7S_TERM_2,
 
-    id_qmk_tapdance_3_tap   = 11,
-    id_qmk_tapdance_3_hold  = 12,
-    id_qmk_tapdance_3_dtap  = 13,
-    id_qmk_tapdance_3_thold = 14,
-    id_qmk_tapdance_3_term  = 15,
+    id_qmk_tapdance_3_tap   = ERA_WIRE_TAPDANCE_H7S_TAP_3,
+    id_qmk_tapdance_3_hold  = ERA_WIRE_TAPDANCE_H7S_HOLD_3,
+    id_qmk_tapdance_3_dtap  = ERA_WIRE_TAPDANCE_H7S_DOUBLE_TAP_3,
+    id_qmk_tapdance_3_thold = ERA_WIRE_TAPDANCE_H7S_TAP_HOLD_3,
+    id_qmk_tapdance_3_term  = ERA_WIRE_TAPDANCE_H7S_TERM_3,
 
-    id_qmk_tapdance_4_tap   = 16,
-    id_qmk_tapdance_4_hold  = 17,
-    id_qmk_tapdance_4_dtap  = 18,
-    id_qmk_tapdance_4_thold = 19,
-    id_qmk_tapdance_4_term  = 20,
+    id_qmk_tapdance_4_tap   = ERA_WIRE_TAPDANCE_H7S_TAP_4,
+    id_qmk_tapdance_4_hold  = ERA_WIRE_TAPDANCE_H7S_HOLD_4,
+    id_qmk_tapdance_4_dtap  = ERA_WIRE_TAPDANCE_H7S_DOUBLE_TAP_4,
+    id_qmk_tapdance_4_thold = ERA_WIRE_TAPDANCE_H7S_TAP_HOLD_4,
+    id_qmk_tapdance_4_term  = ERA_WIRE_TAPDANCE_H7S_TERM_4,
 
-    id_qmk_tapdance_5_tap   = 21,
-    id_qmk_tapdance_5_hold  = 22,
-    id_qmk_tapdance_5_dtap  = 23,
-    id_qmk_tapdance_5_thold = 24,
-    id_qmk_tapdance_5_term  = 25,
+    id_qmk_tapdance_5_tap   = ERA_WIRE_TAPDANCE_H7S_TAP_5,
+    id_qmk_tapdance_5_hold  = ERA_WIRE_TAPDANCE_H7S_HOLD_5,
+    id_qmk_tapdance_5_dtap  = ERA_WIRE_TAPDANCE_H7S_DOUBLE_TAP_5,
+    id_qmk_tapdance_5_thold = ERA_WIRE_TAPDANCE_H7S_TAP_HOLD_5,
+    id_qmk_tapdance_5_term  = ERA_WIRE_TAPDANCE_H7S_TERM_5,
 
-    id_qmk_tapdance_6_tap   = 26,
-    id_qmk_tapdance_6_hold  = 27,
-    id_qmk_tapdance_6_dtap  = 28,
-    id_qmk_tapdance_6_thold = 29,
-    id_qmk_tapdance_6_term  = 30,
+    id_qmk_tapdance_6_tap   = ERA_WIRE_TAPDANCE_H7S_TAP_6,
+    id_qmk_tapdance_6_hold  = ERA_WIRE_TAPDANCE_H7S_HOLD_6,
+    id_qmk_tapdance_6_dtap  = ERA_WIRE_TAPDANCE_H7S_DOUBLE_TAP_6,
+    id_qmk_tapdance_6_thold = ERA_WIRE_TAPDANCE_H7S_TAP_HOLD_6,
+    id_qmk_tapdance_6_term  = ERA_WIRE_TAPDANCE_H7S_TERM_6,
 
-    id_qmk_tapdance_7_tap   = 31,
-    id_qmk_tapdance_7_hold  = 32,
-    id_qmk_tapdance_7_dtap  = 33,
-    id_qmk_tapdance_7_thold = 34,
-    id_qmk_tapdance_7_term  = 35,
+    id_qmk_tapdance_7_tap   = ERA_WIRE_TAPDANCE_H7S_TAP_7,
+    id_qmk_tapdance_7_hold  = ERA_WIRE_TAPDANCE_H7S_HOLD_7,
+    id_qmk_tapdance_7_dtap  = ERA_WIRE_TAPDANCE_H7S_DOUBLE_TAP_7,
+    id_qmk_tapdance_7_thold = ERA_WIRE_TAPDANCE_H7S_TAP_HOLD_7,
+    id_qmk_tapdance_7_term  = ERA_WIRE_TAPDANCE_H7S_TERM_7,
 
-    id_qmk_tapdance_8_tap   = 36,
-    id_qmk_tapdance_8_hold  = 37,
-    id_qmk_tapdance_8_dtap  = 38,
-    id_qmk_tapdance_8_thold = 39,
-    id_qmk_tapdance_8_term  = 40,
+    id_qmk_tapdance_8_tap   = ERA_WIRE_TAPDANCE_H7S_TAP_8,
+    id_qmk_tapdance_8_hold  = ERA_WIRE_TAPDANCE_H7S_HOLD_8,
+    id_qmk_tapdance_8_dtap  = ERA_WIRE_TAPDANCE_H7S_DOUBLE_TAP_8,
+    id_qmk_tapdance_8_thold = ERA_WIRE_TAPDANCE_H7S_TAP_HOLD_8,
+    id_qmk_tapdance_8_term  = ERA_WIRE_TAPDANCE_H7S_TERM_8,
 
-    id_qmk_tapdance_1_term_exact = 41,  // V260821R1: TD0–TD7 exact ms, channel 16
-    id_qmk_tapdance_2_term_exact = 42,
-    id_qmk_tapdance_3_term_exact = 43,
-    id_qmk_tapdance_4_term_exact = 44,
-    id_qmk_tapdance_5_term_exact = 45,
-    id_qmk_tapdance_6_term_exact = 46,
-    id_qmk_tapdance_7_term_exact = 47,
-    id_qmk_tapdance_8_term_exact = 48,
-    id_qmk_tapdance_1_mode = 49,
-    id_qmk_tapdance_2_mode = 50,
-    id_qmk_tapdance_3_mode = 51,
-    id_qmk_tapdance_4_mode = 52,
-    id_qmk_tapdance_5_mode = 53,
-    id_qmk_tapdance_6_mode = 54,
-    id_qmk_tapdance_7_mode = 55,
-    id_qmk_tapdance_8_mode = 56,
-    id_qmk_tapdance_1_hold_term = 57,
-    id_qmk_tapdance_2_hold_term = 58,
-    id_qmk_tapdance_3_hold_term = 59,
-    id_qmk_tapdance_4_hold_term = 60,
-    id_qmk_tapdance_5_hold_term = 61,
-    id_qmk_tapdance_6_hold_term = 62,
-    id_qmk_tapdance_7_hold_term = 63,
-    id_qmk_tapdance_8_hold_term = 64,
-    id_qmk_tapdance_1_hold_other = 65,
-    id_qmk_tapdance_2_hold_other = 66,
-    id_qmk_tapdance_3_hold_other = 67,
-    id_qmk_tapdance_4_hold_other = 68,
-    id_qmk_tapdance_5_hold_other = 69,
-    id_qmk_tapdance_6_hold_other = 70,
-    id_qmk_tapdance_7_hold_other = 71,
-    id_qmk_tapdance_8_hold_other = 72,
+    id_qmk_tapdance_1_term_exact = ERA_WIRE_TAPDANCE_H7S_TERM_EXACT_1,
+    id_qmk_tapdance_2_term_exact = ERA_WIRE_TAPDANCE_H7S_TERM_EXACT_2,
+    id_qmk_tapdance_3_term_exact = ERA_WIRE_TAPDANCE_H7S_TERM_EXACT_3,
+    id_qmk_tapdance_4_term_exact = ERA_WIRE_TAPDANCE_H7S_TERM_EXACT_4,
+    id_qmk_tapdance_5_term_exact = ERA_WIRE_TAPDANCE_H7S_TERM_EXACT_5,
+    id_qmk_tapdance_6_term_exact = ERA_WIRE_TAPDANCE_H7S_TERM_EXACT_6,
+    id_qmk_tapdance_7_term_exact = ERA_WIRE_TAPDANCE_H7S_TERM_EXACT_7,
+    id_qmk_tapdance_8_term_exact = ERA_WIRE_TAPDANCE_H7S_TERM_EXACT_8,
+    id_qmk_tapdance_1_mode = ERA_WIRE_TAPDANCE_H7S_MODE_1,
+    id_qmk_tapdance_2_mode = ERA_WIRE_TAPDANCE_H7S_MODE_2,
+    id_qmk_tapdance_3_mode = ERA_WIRE_TAPDANCE_H7S_MODE_3,
+    id_qmk_tapdance_4_mode = ERA_WIRE_TAPDANCE_H7S_MODE_4,
+    id_qmk_tapdance_5_mode = ERA_WIRE_TAPDANCE_H7S_MODE_5,
+    id_qmk_tapdance_6_mode = ERA_WIRE_TAPDANCE_H7S_MODE_6,
+    id_qmk_tapdance_7_mode = ERA_WIRE_TAPDANCE_H7S_MODE_7,
+    id_qmk_tapdance_8_mode = ERA_WIRE_TAPDANCE_H7S_MODE_8,
+    id_qmk_tapdance_1_hold_term = ERA_WIRE_TAPDANCE_H7S_HOLD_TERM_1,
+    id_qmk_tapdance_2_hold_term = ERA_WIRE_TAPDANCE_H7S_HOLD_TERM_2,
+    id_qmk_tapdance_3_hold_term = ERA_WIRE_TAPDANCE_H7S_HOLD_TERM_3,
+    id_qmk_tapdance_4_hold_term = ERA_WIRE_TAPDANCE_H7S_HOLD_TERM_4,
+    id_qmk_tapdance_5_hold_term = ERA_WIRE_TAPDANCE_H7S_HOLD_TERM_5,
+    id_qmk_tapdance_6_hold_term = ERA_WIRE_TAPDANCE_H7S_HOLD_TERM_6,
+    id_qmk_tapdance_7_hold_term = ERA_WIRE_TAPDANCE_H7S_HOLD_TERM_7,
+    id_qmk_tapdance_8_hold_term = ERA_WIRE_TAPDANCE_H7S_HOLD_TERM_8,
+    id_qmk_tapdance_1_hold_other = ERA_WIRE_TAPDANCE_H7S_HOLD_OTHER_1,
+    id_qmk_tapdance_2_hold_other = ERA_WIRE_TAPDANCE_H7S_HOLD_OTHER_2,
+    id_qmk_tapdance_3_hold_other = ERA_WIRE_TAPDANCE_H7S_HOLD_OTHER_3,
+    id_qmk_tapdance_4_hold_other = ERA_WIRE_TAPDANCE_H7S_HOLD_OTHER_4,
+    id_qmk_tapdance_5_hold_other = ERA_WIRE_TAPDANCE_H7S_HOLD_OTHER_5,
+    id_qmk_tapdance_6_hold_other = ERA_WIRE_TAPDANCE_H7S_HOLD_OTHER_6,
+    id_qmk_tapdance_7_hold_other = ERA_WIRE_TAPDANCE_H7S_HOLD_OTHER_7,
+    id_qmk_tapdance_8_hold_other = ERA_WIRE_TAPDANCE_H7S_HOLD_OTHER_8,
 
 
 };
 
 // V260823R1: VIA MOUSE 제어 값 ID (참조 QMK era_mousekey_via.c와 동일한 1..6 배치)
 enum via_qmk_mousekey_value {
-    id_qmk_mousekey_cursor_min_speed    = 1,
-    id_qmk_mousekey_cursor_max_speed    = 2,
-    id_qmk_mousekey_cursor_acceleration = 3,
-    id_qmk_mousekey_cursor_interval     = 4,
-    id_qmk_mousekey_wheel_interval      = 5,
-    id_qmk_mousekey_wheel_acceleration  = 6,
+    id_qmk_mousekey_cursor_min_speed    = ERA_WIRE_MOUSEKEY_CURSOR_MIN_SPEED,
+    id_qmk_mousekey_cursor_max_speed    = ERA_WIRE_MOUSEKEY_CURSOR_MAX_SPEED,
+    id_qmk_mousekey_cursor_acceleration = ERA_WIRE_MOUSEKEY_CURSOR_ACCELERATION,
+    id_qmk_mousekey_cursor_interval     = ERA_WIRE_MOUSEKEY_CURSOR_INTERVAL,
+    id_qmk_mousekey_wheel_interval      = ERA_WIRE_MOUSEKEY_WHEEL_INTERVAL,
+    id_qmk_mousekey_wheel_acceleration  = ERA_WIRE_MOUSEKEY_WHEEL_ACCELERATION,
 };
 
 // V260901R1: VIA RGB SLEEP. 공식 JSON은 value 1 분 프리셋을 유지하고,
 //            Custom VIA는 additive value 2의 BE16 exact seconds를 사용한다. 저장은 공통 uint16 초.
 enum via_qmk_rgb_sleep_value {
-    id_qmk_rgb_sleep_timeout       = 1,
-    id_qmk_rgb_sleep_timeout_exact = 2,
-    id_qmk_rgb_sleep_enable        = 3,
+    id_qmk_rgb_sleep_timeout       = ERA_WIRE_RGB_SLEEP_H7S_TIMEOUT,
+    id_qmk_rgb_sleep_timeout_exact = ERA_WIRE_RGB_SLEEP_H7S_TIMEOUT_EXACT,
+    id_qmk_rgb_sleep_enable        = ERA_WIRE_RGB_SLEEP_H7S_ENABLE,
 };
 
 // V251012R2: 커스텀 인디케이터 제어 값 ID
 enum via_qmk_custom_indicator_value {
-    id_qmk_custom_ind_selec      = 1,
-    id_qmk_custom_ind_brightness = 2,
-    id_qmk_custom_ind_color      = 3,
-    id_qmk_custom_ind_2_selec      = 4,  // V260310R1: BRICK65 Indicator 2는 custom channel 내 별도 value ID 사용
-    id_qmk_custom_ind_2_brightness = 5,
-    id_qmk_custom_ind_2_color      = 6,
+    id_qmk_custom_ind_selec      = ERA_WIRE_INDICATORS_H7S_INDICATOR_1_SELECT,
+    id_qmk_custom_ind_brightness = ERA_WIRE_INDICATORS_H7S_INDICATOR_1_BRIGHTNESS,
+    id_qmk_custom_ind_color      = ERA_WIRE_INDICATORS_H7S_INDICATOR_1_COLOR,
+    id_qmk_custom_ind_2_selec      = ERA_WIRE_INDICATORS_H7S_INDICATOR_2_SELECT,
+    id_qmk_custom_ind_2_brightness = ERA_WIRE_INDICATORS_H7S_INDICATOR_2_BRIGHTNESS,
+    id_qmk_custom_ind_2_color      = ERA_WIRE_INDICATORS_H7S_INDICATOR_2_COLOR,
 };
 
 // Can be called in an overriding via_init_kb() to test if keyboard level code usage of

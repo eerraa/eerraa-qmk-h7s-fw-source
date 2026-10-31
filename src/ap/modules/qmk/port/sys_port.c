@@ -4,10 +4,10 @@
 
 
 enum via_qmk_ver_item {
-  id_qmk_system_dfu            = 1,
-  id_qmk_system_eep_reset_0    = 2,
-  id_qmk_system_eep_reset_1    = 3,
-  id_qmk_system_eep_reset_done = 4,
+  id_qmk_system_dfu            = ERA_WIRE_SYSTEM_BOOTLOADER,
+  id_qmk_system_eep_reset_0    = ERA_WIRE_SYSTEM_EEPROM_RESET_0,
+  id_qmk_system_eep_reset_1    = ERA_WIRE_SYSTEM_EEPROM_RESET_1,
+  id_qmk_system_eep_reset_done = ERA_WIRE_SYSTEM_EEPROM_RESET_DONE,
 };
 
 #define SYS_EEP_RESET_BIT_0             (1U << 0)

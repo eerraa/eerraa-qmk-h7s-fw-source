@@ -15,20 +15,20 @@ enum
 };
 
 enum via_qmk_kill_switch_value {
-    id_qmk_kill_switch_enable      = 1,
-    id_qmk_kill_switch_keycode_0   = 2,
-    id_qmk_kill_switch_keycode_1   = 3,
-    id_qmk_kill_switch_mode        = 4,
+    id_qmk_kill_switch_enable      = ERA_WIRE_SOCD_ENABLE,
+    id_qmk_kill_switch_keycode_0   = ERA_WIRE_SOCD_KEYCODE_0,
+    id_qmk_kill_switch_keycode_1   = ERA_WIRE_SOCD_KEYCODE_1,
+    id_qmk_kill_switch_mode        = ERA_WIRE_SOCD_MODE,
 };
 
 // 저장되는 mode 값. EERRAA SOCD와 같은 번호를 쓴다.
 enum
 {
-  KILL_SWITCH_MODE_LAST_INPUT = 1,
-  KILL_SWITCH_MODE_NEUTRAL,
-  KILL_SWITCH_MODE_FIRST_INPUT,
-  KILL_SWITCH_MODE_KEY_0_PRIORITY,
-  KILL_SWITCH_MODE_KEY_1_PRIORITY,
+  KILL_SWITCH_MODE_LAST_INPUT = ERA_WIRE_SOCD_MODES_LAST_INPUT,
+  KILL_SWITCH_MODE_NEUTRAL = ERA_WIRE_SOCD_MODES_NEUTRAL,
+  KILL_SWITCH_MODE_FIRST_INPUT = ERA_WIRE_SOCD_MODES_FIRST_INPUT,
+  KILL_SWITCH_MODE_KEY_0_PRIORITY = ERA_WIRE_SOCD_MODES_KEY_0_PRIORITY,
+  KILL_SWITCH_MODE_KEY_1_PRIORITY = ERA_WIRE_SOCD_MODES_KEY_1_PRIORITY,
   KILL_SWITCH_MODE_MAX = KILL_SWITCH_MODE_KEY_1_PRIORITY,
 };
 

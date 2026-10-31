@@ -23,6 +23,7 @@
 #endif
 
 #include "via.h"
+#include "keycodes.h" // owns the version of the keycode table reported to VIA
 
 #include "raw_hid.h"
 #include "dynamic_keymap.h"
@@ -32,7 +33,7 @@
 #include "timer.h"
 #include "wait.h"
 #include "version.h" // for QMK_BUILDDATE used in EEPROM magic
-#include "era_state_sync.h"  // V260821R1: GET 0x06 리비전 봉투. TX는 raw_hid_send가 아니라 via_hid_task enqueue.
+#include "era_state_sync.h"  // State Sync responses are enqueued by via_hid_task.
 
 #if defined(AUDIO_ENABLE)
 #    include "audio.h"
@@ -378,6 +379,14 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
                 }
                 case id_firmware_version: {
                     uint32_t value  = VIA_FIRMWARE_VERSION;
+                    command_data[1] = (value >> 24) & 0xFF;
+                    command_data[2] = (value >> 16) & 0xFF;
+                    command_data[3] = (value >> 8) & 0xFF;
+                    command_data[4] = value & 0xFF;
+                    break;
+                }
+                case id_keycodes_version: {
+                    uint32_t value  = QMK_KEYCODES_VERSION_BCD;
                     command_data[1] = (value >> 24) & 0xFF;
                     command_data[2] = (value >> 16) & 0xFF;
                     command_data[3] = (value >> 8) & 0xFF;

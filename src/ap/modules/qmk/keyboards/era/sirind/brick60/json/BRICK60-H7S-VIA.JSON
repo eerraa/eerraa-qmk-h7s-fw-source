@@ -3,7 +3,7 @@
   "vendorId": "0x4501",
   "productId": "0x000C",
   "matrix": { "rows": 5, "cols": 15 },
-  "keycodes": ["qmk_lighting"],
+  "keycodes": ["qmk_rgblight_keycodes"],
   "customKeycodes": [
     { "name": "TD0", "title": "Tap Dance 0", "shortName": "TD0" },
     { "name": "TD1", "title": "Tap Dance 1", "shortName": "TD1" },

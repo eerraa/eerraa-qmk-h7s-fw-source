@@ -119,7 +119,7 @@ void action_owner_clear_mods(action_owner_t owner) {
 
 /* Ordinary mouse usages are bit state; explicit owner contributions are counted.
  * System/consumer reports each represent only one selected usage. */
-#    define ACTION_MOUSE_CODES (KC_MS_ACCEL2 - KC_MS_UP + 1)
+#    define ACTION_MOUSE_CODES (QK_MOUSE_ACCELERATION_2 - QK_MOUSE_CURSOR_UP + 1)
 _Static_assert(ACTION_MOUSE_CODES <= 32, "Mouse ownership uses one 32-bit mask");
 static uint32_t regular_mouse;
 static uint32_t owned_mouse[ACTION_OWNER_COUNT];
@@ -129,8 +129,8 @@ static uint16_t owned_usage[ACTION_OWNER_COUNT][2];
 static uint8_t owned_usage_owners[2];
 
 bool action_mouse_update(uint8_t code, bool pressed) {
-    if (code < KC_MS_UP || code > KC_MS_ACCEL2) return true;
-    const uint8_t i = (uint8_t)(code - KC_MS_UP);
+    if (code < QK_MOUSE_CURSOR_UP || code > QK_MOUSE_ACCELERATION_2) return true;
+    const uint8_t i = (uint8_t)(code - QK_MOUSE_CURSOR_UP);
     const uint32_t bit = 1UL << i;
     if (current_owner < ACTION_OWNER_COUNT) {
         uint32_t *owned = &owned_mouse[current_owner];
@@ -187,7 +187,7 @@ void action_owner_clear_hid(action_owner_t owner) {
     const uint8_t previous = current_owner;
     current_owner = owner;
     for (uint8_t i = 0; owned_mouse[owner] && i < ACTION_MOUSE_CODES; ++i) {
-        if (owned_mouse[owner] & (1UL << i)) register_mouse((uint8_t)(KC_MS_UP + i), false);
+        if (owned_mouse[owner] & (1UL << i)) register_mouse((uint8_t)(QK_MOUSE_CURSOR_UP + i), false);
     }
     for (uint8_t page = 0; page < 2; ++page) {
         if (!owned_usage[owner][page]) continue;
@@ -224,7 +224,7 @@ void action_owner_release(action_owner_t owner) {
     action_owner_clear_mods(owner);
     for (uint8_t i = 0; owned_mouse[owner] && i < ACTION_MOUSE_CODES; ++i) {
         if (!(owned_mouse[owner] & (1UL << i))) continue;
-        const uint8_t code = (uint8_t)(KC_MS_UP + i);
+        const uint8_t code = (uint8_t)(QK_MOUSE_CURSOR_UP + i);
         if (action_mouse_update(code, false)) {
 #    ifdef MOUSEKEY_ENABLE
             mousekey_off(code);

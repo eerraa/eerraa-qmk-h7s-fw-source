@@ -8,11 +8,11 @@
 
 // V260901R1: 단일 읽기 전용 ASCII VERSION 값을 추가하고 기존 드롭다운 GET 주소는 호환용으로 유지한다.
 enum via_qmk_ver_item {
-    id_qmk_ver_yy    = 1,
-    id_qmk_ver_mm    = 2,
-    id_qmk_ver_dd    = 3,
-    id_qmk_ver_rv    = 4,
-    id_qmk_ver_ascii = 5,
+    id_qmk_ver_yy    = ERA_WIRE_VERSION_H7S_YEAR,
+    id_qmk_ver_mm    = ERA_WIRE_VERSION_H7S_MONTH,
+    id_qmk_ver_dd    = ERA_WIRE_VERSION_H7S_DAY,
+    id_qmk_ver_rv    = ERA_WIRE_VERSION_H7S_REVISION,
+    id_qmk_ver_ascii = ERA_WIRE_VERSION_H7S_ASCII,
 };
 
 static void via_qmk_ver_get_value(uint8_t *data);

@@ -3,7 +3,12 @@
 #include <stddef.h>
 
 
-#define ERA_STATE_SYNC_CMD_GET_KEYBOARD_VALUE  0x02U
+/* Keep this encoder independent of QMK action/EEPROM headers while deriving
+ * its command id from the same official table as the dispatcher. */
+#define ERA_STATE_SYNC_COMMAND_ALIAS(name, value) era_state_sync_##name = value,
+enum { ERA_WIRE_VIA_OFFICIAL_COMMANDS(ERA_STATE_SYNC_COMMAND_ALIAS) };
+#undef ERA_STATE_SYNC_COMMAND_ALIAS
+#define ERA_STATE_SYNC_CMD_GET_KEYBOARD_VALUE era_state_sync_id_get_keyboard_value
 
 
 static uint32_t s_keymap_revision = 1U;
@@ -73,7 +78,7 @@ bool era_state_sync_via_command(uint8_t *data, uint8_t length)
   bool    valid;
 
   // V260823R1: 봉투는 32바이트 고정이다. 짧은 리포트는 봉투가 아니므로 여기서 답하지 않는다.
-  if (data == NULL || length < 32U)
+  if (data == NULL || length < ERA_WIRE_VIA_REPORT_SIZE)
   {
     return false;
   }
@@ -89,12 +94,12 @@ bool era_state_sync_via_command(uint8_t *data, uint8_t length)
   // V260823R1: 요청 봉투는 version/tag를 뺀 전 구간이 0이어야 한다. 아니면 INVALID로 답한다.
   //            (호스트가 봉투를 만들지 못한 상태를 리비전 불일치와 구분하기 위한 상태값이다.)
   valid = (data[3] == 0U);
-  for (i = 6U; i < 32U; i++)
+  for (i = 6U; i < ERA_WIRE_VIA_REPORT_SIZE; i++)
   {
     valid = valid && (data[i] == 0U);
   }
 
-  for (i = 2U; i < 32U; i++)
+  for (i = 2U; i < ERA_WIRE_VIA_REPORT_SIZE; i++)
   {
     data[i] = 0U;
   }

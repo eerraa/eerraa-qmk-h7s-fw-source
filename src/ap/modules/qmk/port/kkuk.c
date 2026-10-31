@@ -14,9 +14,9 @@
 
 
 enum via_qmk_kill_switch_value {
-    id_qmk_kkuk_enable      = 1,
-    id_qmk_kkuk_delay_time  = 2,
-    id_qmk_kkuk_repeat_time = 3,
+    id_qmk_kkuk_enable      = ERA_WIRE_KKUK_ENABLE,
+    id_qmk_kkuk_delay_time  = ERA_WIRE_KKUK_DELAY,
+    id_qmk_kkuk_repeat_time = ERA_WIRE_KKUK_REPEAT,
 };
 
 
