@@ -2,6 +2,9 @@
 #include "qmk/port/port.h"
 #include "qmk/port/platforms/eeprom.h"            // V251112R5: EEPROM 버스트 모드 제어
 #include "qmk/port/debounce_profile.h"
+#ifdef ERA_MACRO_ENABLE
+#    include "qmk/port/era_macro.h"
+#endif
 
 
 static void cliQmk(cli_args_t *args);
@@ -16,6 +19,9 @@ bool qmkInit(void)
 {
   if (!eeprom_is_ready()) return false;
   if (!eeconfig_is_enabled() && !eeprom_apply_factory_defaults(true)) return false;
+#ifdef ERA_MACRO_ENABLE
+  era_macro_cancel();
+#endif
   via_hid_init();
   debounce_profile_init();                         // V251115R1: VIA 디바운스 프로필 초기 로드
 #ifdef G_TERM_ENABLE
@@ -52,7 +58,16 @@ bool qmkInit(void)
 
 void qmkUpdate(void)
 {
+#ifdef ERA_MACRO_ENABLE
+  usb_hid_session_t macro_session = usbHidGetSession();
+  era_macro_session(macro_session.generation, macro_session.valid, macro_session.suspended);
+#endif
   keyboard_task();
+#ifdef ERA_MACRO_ENABLE
+  macro_session = usbHidGetSession();
+  era_macro_session(macro_session.generation, macro_session.valid, macro_session.suspended);
+  era_macro_task();
+#endif
 #ifdef _USE_HW_WS2812
   ws2812Task();                                      // V260910R6: RGB DMA 완료 후 대기 중 최신 프레임을 비차단 전송
 #endif

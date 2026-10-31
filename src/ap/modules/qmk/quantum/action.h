@@ -66,6 +66,10 @@ typedef struct {
 #if defined(COMBO_ENABLE) || defined(REPEAT_KEY_ENABLE)
     uint16_t keycode;
 #endif
+    /* Runtime press identity and its resolved mapping survive deferred replay. */
+    uint16_t press_generation;
+    uint16_t resolved_keycode;
+    bool resolved_keycode_valid;
 } keyrecord_t;
 
 /* Execute action per keyevent */

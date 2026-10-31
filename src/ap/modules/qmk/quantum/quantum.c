@@ -248,7 +248,25 @@ uint16_t get_record_keycode(keyrecord_t *record, bool update_layer_cache) {
         return record->keycode;
     }
 #endif
-    uint16_t keycode = get_event_keycode(record->event, update_layer_cache);
+    if (record->resolved_keycode_valid) return record->resolved_keycode;
+    uint16_t keycode;
+#if !defined(NO_ACTION_LAYER) && !defined(STRICT_LAYER_RELEASE)
+    if (!record->event.pressed && !disable_action_cache && read_source_keycode_record(record, &keycode)
+#    ifdef TAPDANCE_ENABLE
+        && !IS_QK_TAP_DANCE(keycode)
+#    endif
+    ) {
+        record->resolved_keycode = keycode;
+        record->resolved_keycode_valid = true;
+        return keycode;
+    }
+#endif
+#if !defined(NO_ACTION_LAYER) && !defined(STRICT_LAYER_RELEASE)
+    if (!record->event.pressed && !disable_action_cache)
+        keycode = keymap_key_to_keycode(read_source_layers_cache(record->event.key), record->event.key);
+    else
+#endif
+        keycode = get_event_keycode(record->event, update_layer_cache);
 
 #ifdef TAPDANCE_ENABLE
     keycode = translate_kb_to_tap_dance(keycode);               // V251125R1: Tap Dance 프리패스
@@ -274,7 +292,8 @@ uint16_t get_event_keycode(keyevent_t event, bool update_layer_cache) {
         } else {
             layer = read_source_layers_cache(event.key);
         }
-        return keymap_key_to_keycode(layer, event.key);
+        if (event.pressed) return keymap_key_to_keycode(layer, event.key);
+        return read_source_keycode_cache(event.key);
     } else
 #endif
         return keymap_key_to_keycode(layer_switch_get_layer(event.key), event.key);
@@ -282,10 +301,18 @@ uint16_t get_event_keycode(keyevent_t event, bool update_layer_cache) {
 
 /* Get keycode, and then process pre tapping functionality */
 bool pre_process_record_quantum(keyrecord_t *record) {
+#if !defined(NO_ACTION_LAYER) && !defined(STRICT_LAYER_RELEASE)
+    begin_source_keycode_record(record);
+#endif
     uint16_t keycode = get_record_keycode(record, true);
 #ifdef TAPDANCE_ENABLE
     record->tap_dance_keycode = IS_QK_TAP_DANCE(keycode) ? keycode : KC_NO;
 #endif
+    /* Tap-hold classification and its eventual action share one mapping. */
+    if (record->event.pressed && is_tap_action(action_for_keycode(keycode))) {
+        record->resolved_keycode = keycode;
+        record->resolved_keycode_valid = true;
+    }
     return pre_process_record_kb(keycode, record) &&
 #ifdef COMBO_ENABLE
            process_combo(keycode, record) &&
@@ -323,8 +350,19 @@ bool process_record_quantum(keyrecord_t *record) {
     if (preprocess_tap_dance(keycode, record)) {
         // The tap dance might have updated the layer state, therefore the
         // result of the keycode lookup might change.
+        if (record->event.pressed) record->resolved_keycode_valid = false;
         keycode = get_record_keycode(record, true);
     }
+#endif
+
+    record->resolved_keycode = keycode;
+    record->resolved_keycode_valid = true;
+#if !defined(NO_ACTION_LAYER) && !defined(STRICT_LAYER_RELEASE)
+    if (record->event.pressed && !disable_action_cache
+#    ifdef TAPDANCE_ENABLE
+        && !record->tap_dance_injected
+#    endif
+    ) update_source_keycode_record(record, keycode);
 #endif
 
     // V260911R1: RGB 물리 입력은 matrix_task가 전달하므로 tap/hold 판정 재생에서 중복 통지하지 않는다.

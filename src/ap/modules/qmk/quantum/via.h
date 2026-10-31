@@ -311,6 +311,8 @@ void eeconfig_publish_via_defaults(void);
 void via_init(void);
 
 // Used by VIA to store and retrieve the layout options.
+// Called only for an actual EEPROM GET-visible byte change.
+void     via_eeprom_note_change(uint32_t address, uint32_t length);
 uint32_t via_get_layout_options(void);
 void     via_set_layout_options(uint32_t value);
 void     via_set_layout_options_kb(uint32_t value);

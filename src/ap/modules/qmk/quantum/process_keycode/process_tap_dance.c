@@ -23,6 +23,21 @@
 #include "wait.h"
 #include "tapdance.h"
 
+#ifdef TAPDANCE_ENABLE
+uint8_t tap_dance_action_scope(action_t action) {
+    const uint8_t previous = action_owner_current();
+    if (previous >= ACTION_OWNER_TAP_DANCE_COUNT) return previous;
+    bool momentary = action.kind.id == ACT_LMODS || action.kind.id == ACT_RMODS || action.kind.id == ACT_LAYER_MODS;
+    if (action.kind.id == ACT_LAYER_TAP || action.kind.id == ACT_LAYER_TAP_EXT)
+        momentary = action.layer_tap.code == OP_ON_OFF || action.layer_tap.code < OP_TAP_TOGGLE;
+    if (action.kind.id == ACT_LMODS_TAP || action.kind.id == ACT_RMODS_TAP)
+        momentary = action.layer_tap.code != MODS_TAP_TOGGLE;
+    if (action.kind.id == ACT_USAGE || action.kind.id == ACT_MOUSEKEY) momentary = true;
+    if (!momentary) action_owner_select(ACTION_OWNER_REGULAR);
+    return previous;
+}
+#endif
+
 /* Only an undecided dance owns the interruption cursor. Finished actions
  * remain in the bounded pool until their own input is released. */
 static tap_dance_state_t *active_td;
@@ -199,8 +214,8 @@ void tap_dance_dual_role_reset(tap_dance_state_t *state, void *user_data) {
 
 static inline void _process_tap_dance_action_fn(tap_dance_state_t *state, void *user_data, tap_dance_user_fn_t fn) {
     if (fn) {
-#ifdef TAP_DANCE_OWNED_ACTIONS
-        uint8_t previous = tap_dance_action_set_owner(state->runtime_index);
+#ifdef TAPDANCE_ENABLE
+        uint8_t previous = action_owner_select(state->runtime_index);
 #endif
 #ifdef TAPDANCE_ENABLE
         tap_dance_state_t *outer = callback_state;
@@ -210,8 +225,8 @@ static inline void _process_tap_dance_action_fn(tap_dance_state_t *state, void *
 #ifdef TAPDANCE_ENABLE
         callback_state = outer;
 #endif
-#ifdef TAP_DANCE_OWNED_ACTIONS
-        tap_dance_action_set_owner(previous);
+#ifdef TAPDANCE_ENABLE
+        action_owner_select(previous);
 #endif
     }
 }
@@ -231,22 +246,22 @@ static inline void process_tap_dance_action_on_each_release(tap_dance_action_t *
 }
 
 static inline void process_tap_dance_action_on_reset(tap_dance_action_t *action, tap_dance_state_t *state) {
-#ifdef TAP_DANCE_OWNED_ACTIONS
-    uint8_t previous = tap_dance_action_set_owner(state->runtime_index);
+#ifdef TAPDANCE_ENABLE
+    uint8_t previous = action_owner_select(state->runtime_index);
 #endif
     _process_tap_dance_action_fn(state, action->user_data, action->fn.on_reset);
     del_weak_mods(state->weak_mods);
 #ifndef NO_ACTION_ONESHOT
     del_mods(state->oneshot_mods);
 #endif
-#ifdef TAP_DANCE_OWNED_ACTIONS
-    tap_dance_clear_owner_mods(state->runtime_index);
-    tap_dance_clear_owner_keys(state->runtime_index);
-    tap_dance_clear_owner_hid(state->runtime_index);
+#ifdef TAPDANCE_ENABLE
+    action_owner_clear_mods(state->runtime_index);
+    action_owner_clear_keys(state->runtime_index);
+    action_owner_clear_hid(state->runtime_index);
 #ifndef NO_ACTION_LAYER
     tap_dance_clear_owner_layers(state->runtime_index);
 #endif
-    tap_dance_action_set_owner(previous);
+    action_owner_select(previous);
 #endif
     send_keyboard_report();
     // Clear the tap dance state and mark it as unused
@@ -256,10 +271,10 @@ static inline void process_tap_dance_action_on_reset(tap_dance_action_t *action,
 static inline void process_tap_dance_action_on_dance_finished(tap_dance_action_t *action, tap_dance_state_t *state) {
     if (!state->finished) {
         state->finished = true;
-#ifdef TAP_DANCE_OWNED_ACTIONS
-        uint8_t previous = tap_dance_action_set_owner(state->runtime_index);
+#ifdef TAPDANCE_ENABLE
+        uint8_t previous = action_owner_select(state->runtime_index);
 #endif
-#ifdef TAP_DANCE_OWNED_ACTIONS
+#ifdef TAPDANCE_ENABLE
         /* Tap-time modifiers are replayed for a tap, as in QMK. A hold keeps
          * only live owners, so a released modifier cannot linger on it. */
         if (!state->pressed || state->interrupted)
@@ -270,8 +285,8 @@ static inline void process_tap_dance_action_on_dance_finished(tap_dance_action_t
 #endif
         send_keyboard_report();
         _process_tap_dance_action_fn(state, action->user_data, action->fn.on_dance_finished);
-#ifdef TAP_DANCE_OWNED_ACTIONS
-        tap_dance_action_set_owner(previous);
+#ifdef TAPDANCE_ENABLE
+        action_owner_select(previous);
 #endif
     }
     if (active_td == state) {

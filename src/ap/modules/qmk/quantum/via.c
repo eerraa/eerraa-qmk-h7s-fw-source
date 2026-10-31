@@ -108,6 +108,12 @@ static bool layout_options_staged;
 static uint32_t layout_options_before_reset;
 static void via_store_layout_options(uint32_t value);
 
+void via_eeprom_note_change(uint32_t address, uint32_t length) {
+    if (!layout_options_staged && address < VIA_EEPROM_LAYOUT_OPTIONS_ADDR + VIA_EEPROM_LAYOUT_OPTIONS_SIZE &&
+        address + length > VIA_EEPROM_LAYOUT_OPTIONS_ADDR) era_state_sync_bump_config();
+}
+
+
 bool eeconfig_init_via_checked(void) {
     // set the magic number to false, in case this gets interrupted
     via_eeprom_set_valid(false);
@@ -127,9 +133,11 @@ bool eeconfig_init_via_checked(void) {
 }
 
 void eeconfig_publish_via_defaults(void) {
+    uint32_t before = via_get_layout_options();
     layout_options_staged = false;
-    via_set_layout_options_kb(via_get_layout_options());
-    era_state_sync_bump_config();
+    uint32_t after = via_get_layout_options();
+    via_set_layout_options_kb(after);
+    if (before != after) era_state_sync_bump_config();
 }
 
 void eeconfig_init_via(void) {
@@ -165,10 +173,13 @@ static void via_store_layout_options(uint32_t value) {
 }
 
 void via_set_layout_options(uint32_t value) {
+    uint32_t before = via_get_layout_options();
+    layout_options_before_reset = before;
+    layout_options_staged = true;
     via_store_layout_options(value);
     layout_options_staged = false;
     via_set_layout_options_kb(value);
-    era_state_sync_bump_config();  // V260821R1: layout options는 CONFIG domain
+    if (before != via_get_layout_options()) era_state_sync_bump_config();
 }
 
 #if defined(AUDIO_ENABLE)

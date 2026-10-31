@@ -482,8 +482,10 @@ static uint8_t USBD_CDC_DataIn(USBD_HandleTypeDef *pdev, uint8_t epnum)
     /* Update the packet total length */
     pdev->ep_in[epnum & 0xFU].total_length = 0U;
 
-    /* Send ZLP */
-    return (uint8_t)USBD_LL_Transmit(pdev, epnum, NULL, 0U);
+    /* A failed ZLP arm still owns the completed payload until SOF retries it. */
+    USBD_StatusTypeDef ret = USBD_LL_Transmit(pdev, epnum, NULL, 0U);
+    if (ret != USBD_OK) hcdc->TxState = 2U;
+    return (uint8_t)ret;
   }
   else
   {
@@ -808,6 +810,11 @@ static uint8_t USBD_CDC_SOF(USBD_HandleTypeDef *pdev)
 {
   USBD_CDC_HandleTypeDef *hcdc = pdev->pClassDataCmsit[pdev->classId];
   if (hcdc == NULL || hcdc->RxState == UINT32_MAX) return (uint8_t)USBD_FAIL;
+  if (hcdc->TxState == 2U)
+  {
+    hcdc->TxState = 1U;
+    if (USBD_LL_Transmit(pdev, CDCInEpAdd, NULL, 0U) != USBD_OK) hcdc->TxState = 2U;
+  }
   return CDC_SoF_ISR(pdev);
 }
 

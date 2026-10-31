@@ -49,8 +49,11 @@ static qbuffer_t q_tx;
 static uint8_t q_rx_buf[2048];
 static uint8_t q_tx_buf[2048];
 
-static bool is_opened = false;
+static volatile bool is_opened = false;
 static bool is_rx_full = false;
+static uint32_t tx_pending_length;
+static volatile uint32_t session_generation;
+static uint8_t cdc_class_id;
 static uint8_t cdc_type = 0;
 
 extern USBD_HandleTypeDef USBD_Device;
@@ -76,75 +79,76 @@ USBD_CDC_ItfTypeDef USBD_CDC_fops =
 
 
 
-bool cdcIfInit(void)
+static void cdcResetSession(void)
 {
   is_opened = false;
-  qbufferCreate(&q_rx, q_rx_buf, 2048);
-  qbufferCreate(&q_tx, q_tx_buf, 2048);
+  is_rx_full = false;
+  tx_pending_length = 0U;
+  session_generation++;
+  qbufferFlush(&q_rx);
+  qbufferFlush(&q_tx);
+  LineCoding = (USBD_CDC_LineCodingTypeDef){115200U, 0U, 0U, 8U};
+  CDC_Reset_Status = 0U;
+  cdc_type = 0U;
+}
 
+bool cdcIfInit(void)
+{
+  qbufferCreate(&q_rx, q_rx_buf, sizeof(q_rx_buf));
+  qbufferCreate(&q_tx, q_tx_buf, sizeof(q_tx_buf));
+  cdcResetSession();
   return true;
 }
 
 uint32_t cdcIfAvailable(void)
 {
-  return qbufferAvailable(&q_rx);
+  uint32_t irq = __get_PRIMASK();
+  __disable_irq();
+  uint32_t available = qbufferAvailable(&q_rx);
+  __set_PRIMASK(irq);
+  return available;
 }
 
 uint8_t cdcIfRead(void)
 {
-  uint8_t ret = 0;
-
-  qbufferRead(&q_rx, &ret, 1);
-
+  uint32_t irq = __get_PRIMASK();
+  __disable_irq();
+  uint8_t ret = 0U;
+  qbufferRead(&q_rx, &ret, 1U);
+  __set_PRIMASK(irq);
   return ret;
 }
 
 uint32_t cdcIfWrite(uint8_t *p_data, uint32_t length)
 {
-  uint32_t pre_time;
-  uint32_t tx_len;
-  uint32_t buf_len;
-  uint32_t sent_len;
-
-
-  if (cdcIfIsConnected() != true) return 0;
-
-
-  sent_len = 0;
-
-  pre_time = millis();
-  while(sent_len < length)
+  if (p_data == NULL) return 0U;
+  uint32_t generation = session_generation;
+  uint32_t sent_len = 0U;
+  uint32_t pre_time = millis();
+  while (sent_len < length)
   {
-    buf_len = (q_tx.len - qbufferAvailable(&q_tx)) - 1;
-    tx_len = length - sent_len;
-
-    if (tx_len > buf_len)
+    // Reset may flush both indices in IRQ context. Publish only a bounded
+    // chunk while it is excluded, and never resume this write in a new session.
+    uint32_t irq = __get_PRIMASK();
+    __disable_irq();
+    if (generation != session_generation || !cdcIfIsConnected())
     {
-      tx_len = buf_len;
+      __set_PRIMASK(irq);
+      break;
     }
-
-    if (tx_len > 0)
+    uint32_t buf_len = q_tx.len - qbufferAvailable(&q_tx) - 1U;
+    uint32_t tx_len = length - sent_len;
+    if (tx_len > buf_len) tx_len = buf_len;
+    if (tx_len > 64U) tx_len = 64U;
+    if (tx_len > 0U && qbufferWrite(&q_tx, p_data + sent_len, tx_len)) sent_len += tx_len;
+    __set_PRIMASK(irq);
+    if (millis() - pre_time >= 100U) break;
+    if (tx_len == 0U)
     {
-      qbufferWrite(&q_tx, p_data, tx_len);
-      p_data += tx_len;
-      sent_len += tx_len;
-    }
-    else
-    {
+      if (irq != 0U || __get_IPSR() != 0U) break;
       delay(1);
     }
-    
-    if (cdcIfIsConnected() != true)
-    {
-      break;
-    }
-
-    if (millis()-pre_time >= 100)
-    {
-      break;
-    }
   }
-
   return sent_len;
 }
 
@@ -155,28 +159,13 @@ uint32_t cdcIfGetBaud(void)
 
 bool cdcIfIsConnected(void)
 {
-  bool ret = true;
-
-  if (USBD_Device.pClassData == NULL)
-  {
-    ret = false;
-  }
-  if (is_opened == false)
-  {
-    ret = false;
-  }
-  if (USBD_Device.dev_state != USBD_STATE_CONFIGURED)
-  {
-    ret = false;
-  }
-  if (USBD_Device.dev_config == 0)
-  {
-    ret = false;
-  }
-
-  is_opened = ret;
-
-  return ret;
+  uint32_t irq = __get_PRIMASK();
+  __disable_irq();
+  USBD_CDC_HandleTypeDef *hcdc = USBD_Device.pClassDataCmsit[cdc_class_id];
+  bool connected = hcdc != NULL && hcdc->RxState != UINT32_MAX && is_opened &&
+                   USBD_Device.dev_state == USBD_STATE_CONFIGURED && USBD_Device.dev_config != 0U;
+  __set_PRIMASK(irq);
+  return connected;
 }
 
 uint8_t cdcIfGetType(void)
@@ -186,59 +175,39 @@ uint8_t cdcIfGetType(void)
 
 uint8_t CDC_SoF_ISR(struct _USBD_HandleTypeDef *pdev)
 {
-
-  //-- RX
-  //
+  USBD_CDC_HandleTypeDef *hcdc = pdev->pClassDataCmsit[pdev->classId];
+  if (hcdc == NULL || hcdc->RxState == UINT32_MAX) return USBD_FAIL;
   if (is_rx_full)
   {
-    uint32_t buf_len;
-
-    buf_len = (q_rx.len - qbufferAvailable(&q_rx)) - 1;
-
-    if (buf_len >= CDC_DATA_HS_MAX_PACKET_SIZE)
-    {
-      USBD_CDC_SetRxBuffer(pdev, &UserRxBufferFS[0]);
-      USBD_CDC_ReceivePacket(pdev);
-      is_rx_full = false;
-    }
+    uint32_t free_bytes = q_rx.len - qbufferAvailable(&q_rx) - 1U;
+    if (free_bytes >= CDC_DATA_HS_MAX_PACKET_SIZE &&
+        USBD_CDC_SetRxBuffer(pdev, UserRxBufferFS) == USBD_OK &&
+        USBD_CDC_ReceivePacket(pdev) == USBD_OK) is_rx_full = false;
   }
-
-
-  //-- TX
-  //
-  uint32_t tx_len;
-  tx_len = qbufferAvailable(&q_tx);
-
-  if (tx_len%CDC_DATA_HS_MAX_PACKET_SIZE == 0)
+  if (hcdc->TxState == 0U)
   {
-    if (tx_len > 0)
+    // Once dequeued, this buffer owns the bytes until the class accepts them.
+    // A rejected arm must not let the next SOF replace the pending payload.
+    if (tx_pending_length == 0U)
     {
-      tx_len = tx_len - 1;
+      uint32_t tx_len = qbufferAvailable(&q_tx);
+      if (tx_len > APP_TX_DATA_SIZE) tx_len = APP_TX_DATA_SIZE;
+      if (tx_len > 0U && tx_len % CDC_DATA_HS_MAX_PACKET_SIZE == 0U) tx_len--;
+      if (tx_len > 0U && qbufferRead(&q_tx, UserTxBufferFS, tx_len)) tx_pending_length = tx_len;
+    }
+    if (tx_pending_length > 0U)
+    {
+#ifdef USE_USBD_COMPOSITE
+      if (USBD_CDC_SetTxBuffer(pdev, UserTxBufferFS, tx_pending_length, pdev->classId) == USBD_OK &&
+          USBD_CDC_TransmitPacket(pdev, pdev->classId) == USBD_OK) tx_pending_length = 0U;
+#else
+      if (USBD_CDC_SetTxBuffer(pdev, UserTxBufferFS, tx_pending_length) == USBD_OK &&
+          USBD_CDC_TransmitPacket(pdev) == USBD_OK) tx_pending_length = 0U;
+#endif
     }
   }
-
-  if (tx_len > 0)
-  {
-    USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)pdev->pClassDataCmsit[pdev->classId];
-    if (hcdc->TxState == 0)
-    {
-      qbufferRead(&q_tx, UserTxBufferFS, tx_len);
-
-      #ifdef USE_USBD_COMPOSITE
-      USBD_CDC_SetTxBuffer(pdev, UserTxBufferFS, tx_len, pdev->classId);
-      USBD_CDC_TransmitPacket(pdev, pdev->classId);      
-      #else
-      USBD_CDC_SetTxBuffer(&USBD_Device, UserTxBufferFS, tx_len);
-      USBD_CDC_TransmitPacket(&USBD_Device);
-      #endif
-    }
-  }
-
-  return 0;
+  return USBD_OK;
 }
-
-
-
 
 /* Private functions ---------------------------------------------------------*/
 /**
@@ -247,6 +216,8 @@ uint8_t CDC_SoF_ISR(struct _USBD_HandleTypeDef *pdev)
   */
 static int8_t CDC_Init_FS(USBD_HandleTypeDef *pdev)
 {
+  cdc_class_id = pdev->classId;
+  cdcResetSession();
   /* Set Application Buffers */
   #ifdef USE_USBD_COMPOSITE
   USBD_CDC_SetTxBuffer(pdev, UserTxBufferFS, 0, pdev->classId);
@@ -266,8 +237,8 @@ static int8_t CDC_Init_FS(USBD_HandleTypeDef *pdev)
   */
 static int8_t CDC_DeInit_FS(USBD_HandleTypeDef *pdev)
 {
-
-  is_opened = false;
+  // The class calls this only after every endpoint has released its buffers.
+  cdcResetSession();
 
   return (USBD_OK);
 }
@@ -427,8 +398,8 @@ static int8_t CDC_Receive_FS(USBD_HandleTypeDef *pdev, uint8_t* Buf, uint32_t *L
 
   if (buf_len >= CDC_DATA_HS_MAX_PACKET_SIZE)
   {
-    USBD_CDC_SetRxBuffer(pdev, &Buf[0]);
-    USBD_CDC_ReceivePacket(pdev);
+    is_rx_full = USBD_CDC_SetRxBuffer(pdev, Buf) != USBD_OK ||
+                 USBD_CDC_ReceivePacket(pdev) != USBD_OK;
   }
   else
   {
@@ -453,7 +424,7 @@ uint8_t CDC_Transmit_FS(USBD_HandleTypeDef *pdev, uint8_t* Buf, uint16_t Len)
 {
   uint8_t result = USBD_OK;
   USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)pdev->pClassDataCmsit[pdev->classId];
-  if (hcdc->TxState != 0){
+  if (hcdc == NULL || hcdc->TxState != 0 || tx_pending_length != 0U){
     return USBD_BUSY;
   }
   #ifdef USE_USBD_COMPOSITE

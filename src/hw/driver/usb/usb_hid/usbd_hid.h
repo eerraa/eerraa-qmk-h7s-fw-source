@@ -147,6 +147,14 @@ extern USBD_ClassTypeDef USBD_HID;
   */
 const char *usbHidGetPollingLabel(void);
 
+typedef struct {
+  uint32_t generation;
+  bool valid;
+  bool suspended;
+} usb_hid_session_t;
+// One coherent snapshot of the admitted session; Suspend preserves its generation.
+usb_hid_session_t usbHidGetSession(void);
+
 
 enum 
 {
@@ -183,7 +191,11 @@ bool usbHidSubmitKeyUpdate(uint8_t *data, uint16_t length, uint32_t scan_token, 
 void usbHidEndKeyScan(uint32_t scan_token);
 // V260911R3: 마지막 keyboard 스냅샷 뒤에 최소 간격을 설정한다. 호출자는 기다리지 않는다.
 void usbHidDelayKeyboardReport(uint16_t delay_ms);
+void usbHidDelayKeyboardReportForGeneration(uint16_t delay_ms, uint32_t generation);
 bool usbHidSendReportEXK(uint8_t *p_data, uint16_t length);
+// Reject retired synthetic contributions before they can update queue or reconciliation state.
+bool usbHidSendReportForGeneration(uint8_t *data, uint16_t length, uint32_t generation);
+bool usbHidSendReportEXKForGeneration(uint8_t *data, uint16_t length, uint32_t generation);
 void usbHidSetStatusLed(uint8_t led_bits);
 
 /**

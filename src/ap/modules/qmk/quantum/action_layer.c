@@ -8,6 +8,7 @@
 #include "util.h"
 #include "action_layer.h"
 #include "action_util.h"
+#include "keymap_common.h"
 
 /** \brief Default Layer State
  */
@@ -93,13 +94,41 @@ void default_layer_xor(layer_state_t state) {
  */
 layer_state_t layer_state = 0;
 static void layer_state_set_regular(layer_state_t state);
-#ifdef TAP_DANCE_OWNED_ACTIONS
+static layer_state_t regular_layer_state;
+static uint16_t physical_layer_owner = UINT16_MAX;
+static layer_state_t physical_layer_owners[MATRIX_ROWS * MATRIX_COLS];
+static layer_state_t physical_layer_union;
+static uint8_t physical_layer_counts[sizeof(layer_state_t) * 8];
+#    define LAYER_OPERATION_STATE regular_layer_state
+
+uint16_t layer_physical_owner(void) { return physical_layer_owner; }
+void layer_set_physical_owner(uint16_t owner) { physical_layer_owner = owner; }
+static void layer_replace_physical(uint16_t owner, layer_state_t layers) {
+    const layer_state_t changed = physical_layer_owners[owner] ^ layers;
+    for (uint8_t i = 0; i < sizeof(layer_state_t) * 8; ++i) {
+        const layer_state_t bit = (layer_state_t)1 << i;
+        if (!(changed & bit)) continue;
+        if (layers & bit) {
+            ++physical_layer_counts[i];
+            physical_layer_union |= bit;
+        } else if (--physical_layer_counts[i] == 0) {
+            physical_layer_union &= ~bit;
+        }
+    }
+    physical_layer_owners[owner] = layers;
+    layer_state_set_regular(regular_layer_state);
+}
+void layer_clear_physical_momentary(void) {
+    memset(physical_layer_owners, 0, sizeof(physical_layer_owners));
+    memset(physical_layer_counts, 0, sizeof(physical_layer_counts));
+    physical_layer_union = 0;
+    layer_state_set_regular(regular_layer_state);
+}
+#ifdef TAPDANCE_ENABLE
 #    include "process_keycode/process_tap_dance.h"
 static layer_state_t td_layer_owners[TAP_DANCE_MAX_SIMULTANEOUS];
 static layer_state_t td_layer_union;
 static uint8_t td_layer_counts[sizeof(layer_state_t) * 8];
-static layer_state_t regular_layer_state;
-#    define LAYER_OPERATION_STATE regular_layer_state
 static void tap_dance_replace_layers(uint8_t owner, layer_state_t layers) {
     const layer_state_t changed = td_layer_owners[owner] ^ layers;
     for (uint8_t i = 0; i < sizeof(layer_state_t) * 8; ++i) {
@@ -118,8 +147,6 @@ static void tap_dance_replace_layers(uint8_t owner, layer_state_t layers) {
 void tap_dance_clear_owner_layers(uint8_t owner) {
     if (owner < TAP_DANCE_MAX_SIMULTANEOUS && td_layer_owners[owner]) tap_dance_replace_layers(owner, 0);
 }
-#else
-#    define LAYER_OPERATION_STATE layer_state
 #endif
 
 /** \brief Layer state set user
@@ -143,8 +170,9 @@ __attribute__((weak)) layer_state_t layer_state_set_kb(layer_state_t state) {
  * Sets the layer to match the specified state (a bitmask)
  */
 static void layer_state_set_regular(layer_state_t state) {
-#ifdef TAP_DANCE_OWNED_ACTIONS
     regular_layer_state = state;
+    state |= physical_layer_union;
+#ifdef TAPDANCE_ENABLE
     state |= td_layer_union;
 #endif
     state = layer_state_set_kb(state);
@@ -165,7 +193,10 @@ static void layer_state_set_regular(layer_state_t state) {
  * Their later releases retain ownership of other resources, but cannot undo
  * a new ordinary layer contribution or resurrect the retired one. */
 void layer_state_set(layer_state_t state) {
-#ifdef TAP_DANCE_OWNED_ACTIONS
+    memset(physical_layer_owners, 0, sizeof(physical_layer_owners));
+    memset(physical_layer_counts, 0, sizeof(physical_layer_counts));
+    physical_layer_union = 0;
+#ifdef TAPDANCE_ENABLE
     memset(td_layer_owners, 0, sizeof(td_layer_owners));
     memset(td_layer_counts, 0, sizeof(td_layer_counts));
     td_layer_union = 0;
@@ -213,13 +244,17 @@ void layer_move(uint8_t layer) {
  * Turns on given layer
  */
 void layer_on(uint8_t layer) {
-#ifdef TAP_DANCE_OWNED_ACTIONS
-    const uint8_t owner = tap_dance_action_get_owner();
+#ifdef TAPDANCE_ENABLE
+    const uint8_t owner = action_owner_current();
     if (owner < TAP_DANCE_MAX_SIMULTANEOUS) {
         tap_dance_replace_layers(owner, td_layer_owners[owner] | ((layer_state_t)1 << layer));
         return;
     }
 #endif
+    if (physical_layer_owner < MATRIX_ROWS * MATRIX_COLS) {
+        layer_replace_physical(physical_layer_owner, physical_layer_owners[physical_layer_owner] | ((layer_state_t)1 << layer));
+        return;
+    }
     layer_state_set_regular(LAYER_OPERATION_STATE | ((layer_state_t)1 << layer));
 }
 
@@ -228,13 +263,17 @@ void layer_on(uint8_t layer) {
  * Turns off given layer
  */
 void layer_off(uint8_t layer) {
-#ifdef TAP_DANCE_OWNED_ACTIONS
-    const uint8_t owner = tap_dance_action_get_owner();
+#ifdef TAPDANCE_ENABLE
+    const uint8_t owner = action_owner_current();
     if (owner < TAP_DANCE_MAX_SIMULTANEOUS) {
         tap_dance_replace_layers(owner, td_layer_owners[owner] & ~((layer_state_t)1 << layer));
         return;
     }
 #endif
+    if (physical_layer_owner < MATRIX_ROWS * MATRIX_COLS) {
+        layer_replace_physical(physical_layer_owner, physical_layer_owners[physical_layer_owner] & ~((layer_state_t)1 << layer));
+        return;
+    }
     layer_state_set_regular(LAYER_OPERATION_STATE & ~((layer_state_t)1 << layer));
 }
 
@@ -280,6 +319,58 @@ void layer_debug(void) {
 #if !defined(NO_ACTION_LAYER) && !defined(STRICT_LAYER_RELEASE)
 /** \brief source layer cache
  */
+
+/* One physical generation can have several queued records; a later ingress
+ * must not replace the keycode of an earlier, already executed press. */
+static uint16_t source_press_generation[MATRIX_ROWS][MATRIX_COLS];
+static uint8_t source_press_down[(MATRIX_ROWS * MATRIX_COLS + 7) / 8];
+static struct { uint16_t keycode, generation; } source_keycode_cache[MATRIX_ROWS][MATRIX_COLS];
+
+void begin_source_keycode_record(keyrecord_t *record) {
+    const keypos_t key = record->event.key;
+    if (!IS_KEYEVENT(record->event) || key.row >= MATRIX_ROWS || key.col >= MATRIX_COLS) return;
+    uint16_t *generation = &source_press_generation[key.row][key.col];
+    const uint16_t index = (uint16_t)key.row * MATRIX_COLS + key.col;
+    const uint8_t bit = 1U << (index % 8);
+    uint8_t *down = &source_press_down[index / 8];
+    if (record->event.pressed) {
+        if (!(*down & bit)) {
+            if (++*generation == 0) ++*generation;
+            /* Discarded prefixes can leave an executed cache for a full wrap. */
+            if (source_keycode_cache[key.row][key.col].generation == *generation)
+                source_keycode_cache[key.row][key.col].generation = 0;
+        } else if (source_keycode_cache[key.row][key.col].generation == *generation) {
+            record->resolved_keycode = source_keycode_cache[key.row][key.col].keycode;
+            record->resolved_keycode_valid = true;
+        }
+        *down |= bit;
+    } else {
+        if (!(*down & bit)) {
+            record->resolved_keycode = KC_NO;
+            record->resolved_keycode_valid = true;
+            return;
+        }
+        *down &= ~bit;
+    }
+    record->press_generation = *generation;
+}
+uint16_t read_source_keycode_cache(keypos_t key) {
+    if (key.row < MATRIX_ROWS && key.col < MATRIX_COLS) return source_keycode_cache[key.row][key.col].keycode;
+    return keymap_key_to_keycode(read_source_layers_cache(key), key);
+}
+bool read_source_keycode_record(keyrecord_t *record, uint16_t *keycode) {
+    const keypos_t key = record->event.key;
+    if (record->press_generation == 0 || key.row >= MATRIX_ROWS || key.col >= MATRIX_COLS ||
+        source_keycode_cache[key.row][key.col].generation != record->press_generation) return false;
+    *keycode = source_keycode_cache[key.row][key.col].keycode;
+    return true;
+}
+void update_source_keycode_record(keyrecord_t *record, uint16_t keycode) {
+    const keypos_t key = record->event.key;
+    if (record->press_generation == 0 || key.row >= MATRIX_ROWS || key.col >= MATRIX_COLS) return;
+    source_keycode_cache[key.row][key.col].keycode = keycode;
+    source_keycode_cache[key.row][key.col].generation = record->press_generation;
+}
 
 uint8_t source_layers_cache[((MATRIX_ROWS * MATRIX_COLS) + (CHAR_BIT)-1) / (CHAR_BIT)][MAX_LAYER_BITS] = {{0}};
 #    ifdef ENCODER_MAP_ENABLE
@@ -419,14 +510,10 @@ layer_state_t update_tri_layer_state(layer_state_t state, uint8_t layer1, uint8_
 }
 
 void update_tri_layer(uint8_t layer1, uint8_t layer2, uint8_t layer3) {
-#ifdef TAP_DANCE_OWNED_ACTIONS
     /* Read the composed state, but update only the helper's adjust bit.
      * Lower/upper contributions must never be copied into ordinary state. */
     const layer_state_t mask = (layer_state_t)1 << layer3;
     const layer_state_t adjusted = update_tri_layer_state(layer_state, layer1, layer2, layer3);
     layer_state_set_regular((regular_layer_state & ~mask) | (adjusted & mask));
-#else
-    layer_state_set(update_tri_layer_state(layer_state, layer1, layer2, layer3));
-#endif
 }
 #endif

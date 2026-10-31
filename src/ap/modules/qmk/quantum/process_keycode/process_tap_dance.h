@@ -19,17 +19,20 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "action.h"
+#include "action_owner.h"
 #include "quantum_keycodes.h"
 
 #ifdef TAPDANCE_ENABLE
 #    define TAP_DANCE_MATRIX_STATES (MATRIX_ROWS * MATRIX_COLS)
 #endif
 #ifndef TAP_DANCE_MAX_SIMULTANEOUS
-#    ifdef TAPDANCE_ENABLE
-#        define TAP_DANCE_MAX_SIMULTANEOUS (TAP_DANCE_MATRIX_STATES + 8)
-#    else
-#        define TAP_DANCE_MAX_SIMULTANEOUS 3
-#    endif
+#    define TAP_DANCE_MAX_SIMULTANEOUS 3
+#endif
+
+#ifdef TAPDANCE_ENABLE
+/* TD momentary action/layer policy stays separate from shared HID ownership. */
+uint8_t tap_dance_action_scope(action_t action);
+void tap_dance_clear_owner_layers(uint8_t owner);
 #endif
 
 typedef struct {

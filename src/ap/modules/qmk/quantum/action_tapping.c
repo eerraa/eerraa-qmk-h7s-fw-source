@@ -104,6 +104,9 @@ void action_tapping_process(keyrecord_t record) {
             // clear all in case of overflow.
             ac_dprintf("OVERFLOW: CLEAR ALL STATES\n");
             clear_keyboard();
+#    ifndef NO_ACTION_LAYER
+            layer_clear_physical_momentary();
+#    endif
             waiting_buffer_clear();
             tapping_key = (keyrecord_t){0};
         }
@@ -257,7 +260,7 @@ bool process_tapping(keyrecord_t *keyp) {
                  */
                 else if (!event.pressed && !waiting_buffer_typed(event)) {
                     // Modifier/Layer should be retained till end of this tapping.
-                    action_t action = layer_switch_get_action(event.key);
+                    action_t action = action_for_keycode(get_record_keycode(keyp, false));
                     switch (action.kind.id) {
                         case ACT_LMODS:
                         case ACT_RMODS:
@@ -323,6 +326,9 @@ bool process_tapping(keyrecord_t *keyp) {
                         // unregister key
                         process_record(&(keyrecord_t){
                             .tap           = tapping_key.tap,
+                            .press_generation = tapping_key.press_generation,
+                            .resolved_keycode = tapping_key.resolved_keycode,
+                            .resolved_keycode_valid = tapping_key.resolved_keycode_valid,
                             .event.key     = tapping_key.event.key,
                             .event.time    = event.time,
                             .event.pressed = false,
@@ -375,6 +381,9 @@ bool process_tapping(keyrecord_t *keyp) {
                         // unregister key
                         process_record(&(keyrecord_t){
                             .tap           = tapping_key.tap,
+                            .press_generation = tapping_key.press_generation,
+                            .resolved_keycode = tapping_key.resolved_keycode,
+                            .resolved_keycode_valid = tapping_key.resolved_keycode_valid,
                             .event.key     = tapping_key.event.key,
                             .event.time    = event.time,
                             .event.pressed = false,

@@ -104,6 +104,26 @@ __attribute__((weak)) const uint8_t RGBLED_GRADIENT_RANGES[] PROGMEM = {255, 170
 #endif
 
 rgblight_config_t rgblight_config;
+
+__attribute__((weak)) void rgblight_note_config_change(void) {}
+
+/* Compare the core VIA GET values, excluding output/animation state and padding. */
+static uint64_t rgblight_published_config;
+static void rgblight_publish_config(void)
+{
+    uint64_t visible = rgblight_config.enable ? rgblight_config.mode : 0U;
+    visible |= (uint64_t)rgblight_config.hue << 8;
+    visible |= (uint64_t)rgblight_config.sat << 16;
+    visible |= (uint64_t)(uint8_t)((uint16_t)rgblight_config.val * 255U / RGBLIGHT_LIMIT_VAL) << 24;
+    visible |= (uint64_t)rgblight_config.speed << 32;
+#ifdef VELOCIKEY_ENABLE
+    visible |= (uint64_t)rgblight_config.velocikey << 40;
+#endif
+    if (visible == rgblight_published_config) return;
+    rgblight_published_config = visible;
+    rgblight_note_config_change();
+}
+
 rgblight_status_t rgblight_status         = {.timer_enabled = false};
 bool              is_rgblight_initialized = false;
 
@@ -1001,6 +1021,7 @@ void rgblight_check_config(void) {
     if (rgblight_config.val > RGBLIGHT_LIMIT_VAL) {
         rgblight_config.val = RGBLIGHT_LIMIT_VAL;
     }
+    rgblight_publish_config();
 }
 
 uint64_t eeconfig_read_rgblight(void) {
@@ -1048,6 +1069,7 @@ void eeconfig_update_rgblight_default(void) {
     rgblight_config.speed     = RGBLIGHT_DEFAULT_SPD;
     RGBLIGHT_SPLIT_SET_CHANGE_MODEHSVS;
     eeconfig_update_rgblight(rgblight_config.raw);
+    rgblight_publish_config();
 }
 
 void eeconfig_debug_rgblight(void) {
@@ -1097,6 +1119,7 @@ void rgblight_init(void) {
         rgblight_indicator_commit_state(slot, indicator_should_enable,
                                         true);  // V260310R4: 초기화 시점에서 슬롯별 전이를 재평가
     }
+    rgblight_publish_config();
 }
 
 void rgblight_reload_from_eeprom(void) {
@@ -1108,6 +1131,7 @@ void rgblight_reload_from_eeprom(void) {
     if (rgblight_config.enable) {
         rgblight_mode_noeeprom(rgblight_config.mode);
     }
+    rgblight_publish_config();
 }
 
 uint64_t rgblight_read_qword(void) {
@@ -1123,6 +1147,7 @@ void rgblight_update_qword(uint64_t qword) {
         rgblight_timer_disable();
         rgblight_set();
     }
+    rgblight_publish_config();
 }
 
 void rgblight_increase(void) {
@@ -1210,6 +1235,7 @@ void rgblight_mode_eeprom_helper(uint8_t mode, bool write_to_eeprom) {
     rgblight_sethsv_eeprom_helper(rgblight_config.hue, next_sat, rgblight_config.val, write_to_eeprom);
     // 같은 모드를 다시 골라도, RGB를 다시 켜도 모드 선택이다. 진행 중인 Pulse 래치와 추적 키를 버린다(EERRAA와 같음).
     rgblight_effect_pulse_on_base_mode_update();
+    rgblight_publish_config();
 }
 
 void rgblight_mode(uint8_t mode) {
@@ -1244,12 +1270,14 @@ void rgblight_enable(void) {
     // eeconfig_update_rgblight(rgblight_config.raw);
     dprintf("rgblight enable [EEPROM]: rgblight_config.enable = %u\n", rgblight_config.enable);
     rgblight_mode(rgblight_config.mode);
+    rgblight_publish_config();
 }
 
 void rgblight_enable_noeeprom(void) {
     rgblight_config.enable = 1;
     dprintf("rgblight enable [NOEEPROM]: rgblight_config.enable = %u\n", rgblight_config.enable);
     rgblight_mode_noeeprom(rgblight_config.mode);
+    rgblight_publish_config();
 }
 
 void rgblight_disable(void) {
@@ -1260,6 +1288,7 @@ void rgblight_disable(void) {
     rgblight_timer_disable();
     RGBLIGHT_SPLIT_SET_CHANGE_MODE;
     rgblight_set();
+    rgblight_publish_config();
 }
 
 void rgblight_disable_noeeprom(void) {
@@ -1269,6 +1298,7 @@ void rgblight_disable_noeeprom(void) {
     rgblight_timer_disable();
     RGBLIGHT_SPLIT_SET_CHANGE_MODE;
     rgblight_set();
+    rgblight_publish_config();
 }
 
 void rgblight_enabled_noeeprom(bool state) {
@@ -1346,6 +1376,7 @@ void rgblight_increase_speed_helper(bool write_to_eeprom) {
     if (write_to_eeprom) {
         eeconfig_update_rgblight(rgblight_config.raw);
     }
+    rgblight_publish_config();
 }
 void rgblight_increase_speed(void) {
     rgblight_increase_speed_helper(true);
@@ -1360,6 +1391,7 @@ void rgblight_decrease_speed_helper(bool write_to_eeprom) {
     if (write_to_eeprom) {
         eeconfig_update_rgblight(rgblight_config.raw);
     }
+    rgblight_publish_config();
 }
 void rgblight_decrease_speed(void) {
     rgblight_decrease_speed_helper(true);
@@ -1458,6 +1490,7 @@ void rgblight_sethsv_eeprom_helper(uint8_t hue, uint8_t sat, uint8_t val, bool w
             dprintf("rgblight set hsv [NOEEPROM]: %u,%u,%u\n", rgblight_config.hue, rgblight_config.sat, rgblight_config.val);
         }
     }
+    rgblight_publish_config();
 }
 
 void rgblight_sethsv(uint8_t hue, uint8_t sat, uint8_t val) {
@@ -1480,6 +1513,7 @@ void rgblight_set_speed_eeprom_helper(uint8_t speed, bool write_to_eeprom) {
     } else {
         dprintf("rgblight set speed [NOEEPROM]: %u\n", rgblight_config.speed);
     }
+    rgblight_publish_config();
 }
 
 void rgblight_set_speed(uint8_t speed) {
@@ -1897,6 +1931,7 @@ void rgblight_update_sync(rgblight_syncinfo_t *syncinfo, bool write_to_eeprom) {
     }
 #        endif /* RGBLIGHT_SPLIT_NO_ANIMATION_SYNC */
 #    endif     /* RGBLIGHT_USE_TIMER */
+    rgblight_publish_config();
 }
 #endif /* RGBLIGHT_SPLIT */
 
@@ -2568,6 +2603,7 @@ void rgblight_velocikey_toggle(void) {
     dprintf("rgblight velocikey toggle [EEPROM]: rgblight_config.velocikey = %u\n", !rgblight_config.velocikey);
     rgblight_config.velocikey = !rgblight_config.velocikey;
     eeconfig_update_rgblight_current();
+    rgblight_publish_config();
 }
 
 // V251123R1: VIA 연동을 위한 직접 설정 API
@@ -2582,6 +2618,7 @@ void rgblight_velocikey_set(bool on, bool write_to_eeprom)
     if (write_to_eeprom) {
         eeconfig_update_rgblight_current();
     }
+    rgblight_publish_config();
 }
 
 void rgblight_velocikey_accelerate(void) {

@@ -36,6 +36,11 @@ void era_state_sync_bump_config(void)
   s_config_revision = era_state_sync_next(s_config_revision);
 }
 
+void rgblight_note_config_change(void)
+{
+  era_state_sync_bump_config();
+}
+
 uint32_t era_state_sync_keymap_revision(void)
 {
   return s_keymap_revision;

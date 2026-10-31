@@ -428,6 +428,8 @@ bool    rgblight_is_enabled(void);
 HSV     rgblight_get_hsv(void);
 
 /* === qmk_firmware (core)internal Functions === */
+// Called when core GET configuration changes; output gates do not publish.
+void     rgblight_note_config_change(void);
 void     rgblight_init(void);
 #ifdef RGBLIGHT_SLEEP
 void     rgblight_suspend(void);  // V251121R4: RGBLIGHT_SLEEP 정의 시에만 슬립 API를 노출

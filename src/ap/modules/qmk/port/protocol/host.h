@@ -18,6 +18,8 @@ host_driver_t *host_get_driver(void);
 uint8_t host_keyboard_leds(void);
 led_t   host_keyboard_led_state(void);
 void    host_keyboard_leds_update(uint8_t led_state);  // V251124R7: USB HID LED 상태를 캐시해 탭/홀드 분기 시 재사용
+/* Producer deduplication must also observe the lifetime of an equal payload. */
+bool    host_keyboard_report_needs_send(void);
 void    host_keyboard_send(report_keyboard_t *report);
 void    host_keyboard_begin_key_update(uint32_t scan_token, uint8_t usage, bool pressed);
 void    host_keyboard_end_key_update(void);
@@ -29,6 +31,10 @@ void    host_mouse_send(report_mouse_t *report);
 void    host_system_send(uint16_t usage);
 void    host_consumer_send(uint16_t usage);
 void    host_programmable_button_send(uint32_t data);
+
+#if defined(TAPDANCE_ENABLE) || defined(ERA_MACRO_ENABLE)
+void host_extra_reconcile(void);
+#endif
 
 uint16_t host_last_system_usage(void);
 uint16_t host_last_consumer_usage(void);

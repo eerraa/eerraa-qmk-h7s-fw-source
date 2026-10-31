@@ -110,6 +110,9 @@ void layer_off(uint8_t layer);
 void layer_invert(uint8_t layer);
 /* bitwise operation */
 void          layer_or(layer_state_t state);
+uint16_t layer_physical_owner(void);
+void layer_set_physical_owner(uint16_t owner);
+void layer_clear_physical_momentary(void);
 void          layer_and(layer_state_t state);
 void          layer_xor(layer_state_t state);
 layer_state_t layer_state_set_user(layer_state_t state);
@@ -160,6 +163,10 @@ layer_state_t update_tri_layer_state(layer_state_t state, uint8_t layer1, uint8_
 
 void    update_source_layers_cache(keypos_t key, uint8_t layer);
 uint8_t read_source_layers_cache(keypos_t key);
+uint16_t read_source_keycode_cache(keypos_t key);
+void begin_source_keycode_record(keyrecord_t *record);
+bool read_source_keycode_record(keyrecord_t *record, uint16_t *keycode);
+void update_source_keycode_record(keyrecord_t *record, uint16_t keycode);
 #endif
 action_t store_or_get_action(bool pressed, keypos_t key);
 

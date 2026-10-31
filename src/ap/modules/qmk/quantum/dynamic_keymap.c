@@ -15,6 +15,7 @@
  */
 
 #include "dynamic_keymap.h"
+#include "qmk/port/era_macro.h"
 #include "keymap_introspection.h"
 #include "action.h"
 #include "eeprom.h"
@@ -284,93 +285,19 @@ void dynamic_keymap_macro_set_buffer(uint16_t offset, uint16_t size, uint8_t *da
 void dynamic_keymap_macro_reset(void) { (void)dynamic_keymap_macro_reset_checked(); }
 
 void dynamic_keymap_macro_send(uint8_t id) {
-    if (id >= DYNAMIC_KEYMAP_MACRO_COUNT) {
-        return;
-    }
-
-    // Check the last byte of the buffer.
-    // If it's not zero, then we are in the middle
-    // of buffer writing, possibly an aborted buffer
-    // write. So do nothing.
-    void *p = (void *)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - 1);
-    if (eeprom_read_byte(p) != 0) {
-        return;
-    }
-
-    // Skip N null characters
-    // p will then point to the Nth macro
-    p         = (void *)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR);
-    void *end = (void *)(DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR + DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE);
-    while (id > 0) {
-        // If we are past the end of the buffer, then there is
-        // no Nth macro in the buffer.
-        if (p == end) {
-            return;
-        }
-        if (eeprom_read_byte(p) == 0) {
-            --id;
-        }
-        ++p;
-    }
-
-    // Send the macro string by making a temporary string.
-    char data[8] = {0};
-    // Skipping the final terminator can leave a missing macro at end.
-    // The sentinel bounds command reads only when a macro actually starts here.
-    while (p != end) {
-        data[0] = eeprom_read_byte(p++);
-        data[1] = 0;
-        // Stop at the null terminator of this macro string
-        if (data[0] == 0) {
-            break;
-        }
-        if (data[0] == SS_QMK_PREFIX) {
-            // Get the code
-            data[1] = eeprom_read_byte(p++);
-            // Unexpected null, abort.
-            if (data[1] == 0) {
-                return;
-            }
-            if (data[1] == SS_TAP_CODE || data[1] == SS_DOWN_CODE || data[1] == SS_UP_CODE) {
-                // Get the keycode
-                data[2] = eeprom_read_byte(p++);
-                // Unexpected null, abort.
-                if (data[2] == 0) {
-                    return;
-                }
-                // Null terminate
-                data[3] = 0;
-            } else if (data[1] == SS_DELAY_CODE) {
-                // Get the number and '|'
-                // At most this is 4 digits plus '|'
-                uint8_t i = 2;
-                while (1) {
-                    data[i] = eeprom_read_byte(p++);
-                    // Unexpected null, abort
-                    if (data[i] == 0) {
-                        return;
-                    }
-                    // Found '|', send it
-                    if (data[i] == '|') {
-                        data[i + 1] = 0;
-                        break;
-                    }
-                    // If haven't found '|' by i==6 then
-                    // number too big, abort
-                    if (i == 6) {
-                        return;
-                    }
-                    ++i;
-                }
-            }
-        }
-        send_string_with_delay(data, DYNAMIC_KEYMAP_MACRO_DELAY);
-    }
+#ifdef ERA_MACRO_ENABLE
+    (void)era_macro_request(id);
+#else
+    (void)id;
+#endif
 }
 
-void eeprom_note_commit(uint32_t address, uint32_t length) {
-    uint32_t macro = DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR;
-    uint32_t marker = macro + DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - 1U;
+void eeprom_note_change(uint32_t address, uint32_t length) {
+#ifdef VIA_ENABLE
+    via_eeprom_note_change(address, length);
+#endif
+    const uint32_t macro = DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR;
+    const uint32_t end = macro + DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE;
     if (address < macro && address + length > DYNAMIC_KEYMAP_EEPROM_ADDR) era_state_sync_bump_keymap();
-    if (address <= marker && address + length > marker && eeprom_read_byte((const uint8_t *)(uintptr_t)marker) == 0U && !eeprom_commit_is_pending()) era_state_sync_bump_macro();
+    if (address < end && address + length > macro) era_state_sync_bump_macro();
 }

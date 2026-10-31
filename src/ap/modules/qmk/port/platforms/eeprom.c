@@ -22,7 +22,7 @@ static bool commit_pending, commit_started, commit_rejected;
 static uintptr_t commit_address;
 static uint8_t commit_value, commit_previous;
 
-__attribute__((weak)) void eeprom_note_commit(uint32_t address, uint32_t length) { (void)address; (void)length; }
+__attribute__((weak)) void eeprom_note_change(uint32_t address, uint32_t length) { (void)address; (void)length; }
 bool eeprom_commit_is_pending(void) { return commit_pending; }
 bool eeprom_commit_failed(void) { return commit_rejected; }
 bool eeprom_prepare_commit(uint8_t *addr, uint8_t invalid)
@@ -83,16 +83,57 @@ static void eeprom_write_reset_guard(void)
 
 bool eeprom_init(void)
 {
-  // V260909R1: 재초기화도 미저장 의도를 버리지 않는다. 초기 읽기 실패는 hwInit이 전파한다.
+  // Reload must preserve pending intent and compare the values exposed by GET.
   if (eeprom_is_pending() && !eeprom_flush_pending()) return false;
-  image_ready = eepromRead(0U, eeprom_buf, sizeof(eeprom_buf));
-  if (!image_ready) { failure_count++; return false; }
+  bool was_ready = image_ready;
   memset(dirty_pages, 0, sizeof(dirty_pages));
+  bool loaded = true;
+  for (uint32_t page = 0; page < EEPROM_PAGE_COUNT; page++) {
+    uint32_t address = page * EEPROM_WRITE_PAGE_SIZE;
+    uint32_t length = TOTAL_EEPROM_BYTE_COUNT - address;
+    if (length > EEPROM_WRITE_PAGE_SIZE) length = EEPROM_WRITE_PAGE_SIZE;
+    if (!eepromRead(address, page_snapshot, length)) { loaded = false; break; }
+    for (uint32_t i = 0; i < length; i++) {
+      uint8_t before = was_ready ? eeprom_buf[address + i] : 0xFFU;
+      if (before != page_snapshot[i]) dirty_pages[page] |= 1UL << i;
+    }
+    memcpy(&eeprom_buf[address], page_snapshot, length);
+    if (was_ready) {
+      for (uint32_t i = 0; i < length; i++)
+        if (dirty_pages[page] & (1UL << i)) eeprom_note_change(address + i, 1U);
+    }
+  }
+  image_ready = loaded;
+  if (!was_ready && loaded) {
+    // An initial image stays hidden until the complete read succeeds.
+    for (uint32_t address = 0; address < TOTAL_EEPROM_BYTE_COUNT; address++)
+      if (dirty_pages[address / EEPROM_WRITE_PAGE_SIZE] & (1UL << (address % EEPROM_WRITE_PAGE_SIZE)))
+        eeprom_note_change(address, 1U);
+  } else if (was_ready && !loaded) {
+    // Read failures expose FF, including pages which were not read this time.
+    for (uint32_t address = 0; address < TOTAL_EEPROM_BYTE_COUNT; address++)
+      if (eeprom_buf[address] != 0xFFU) eeprom_note_change(address, 1U);
+  }
+  memset(dirty_pages, 0, sizeof(dirty_pages));
+  if (!loaded) { failure_count++; return false; }
   pending_bytes = 0U;
   page_cursor = 0U;
   write_active = retry_pending = false;
   commit_rejected = false;
   return true;
+}
+
+static void eeprom_stage_byte(uintptr_t offset, uint8_t value)
+{
+  if (eeprom_buf[offset] == value) return;
+  eeprom_buf[offset] = value;
+  uint32_t page = offset / EEPROM_WRITE_PAGE_SIZE;
+  uint32_t bit = 1UL << (offset % EEPROM_WRITE_PAGE_SIZE);
+  if (!(dirty_pages[page] & bit)) {
+    dirty_pages[page] |= bit;
+    pending_bytes++;
+    if (pending_bytes > pending_max) pending_max = pending_bytes;
+  }
 }
 
 static void eeprom_complete_page(void)
@@ -102,7 +143,6 @@ static void eeprom_complete_page(void)
   for (uint32_t i = 0; i < active_length; i++) {
     uint32_t bit = 1UL << i;
     if ((dirty_pages[active_page] & bit) && eeprom_buf[addr + i] == page_snapshot[i]) {
-      if (!commit_pending || addr + i != commit_address) eeprom_note_commit(addr + i, 1U);
       dirty_pages[active_page] &= ~bit;
       pending_bytes--;
     }
@@ -117,13 +157,14 @@ void eeprom_update(void)
     if (!commit_pending) return;
     if (commit_started) {
       commit_pending = false;
-      eeprom_note_commit(commit_address, 1U);
+      if (commit_previous != eeprom_buf[commit_address]) eeprom_note_change(commit_address, 1U);
       return;
     }
     uintptr_t address = commit_address;
     uint8_t value = commit_value;
-    eeprom_write_byte((uint8_t *)address, value);
-    commit_pending = commit_started = true;
+    // The completion byte stays hidden until its verified receipt.
+    eeprom_stage_byte(address, value);
+    commit_started = true;
     return;
   }
   if (write_active) {
@@ -326,16 +367,10 @@ void eeprom_write_byte(uint8_t *addr, uint8_t value)
 {
   uintptr_t offset = (uintptr_t)addr;
   if (!image_ready || !eeprom_address_valid(offset, 1U)) { invalid_accesses++; return; }
+  uint8_t before = eeprom_read_byte(addr);
   if (commit_pending && offset == commit_address) commit_pending = commit_started = false;
-  if (eeprom_buf[offset] == value) return;
-  eeprom_buf[offset] = value;
-  uint32_t page = offset / EEPROM_WRITE_PAGE_SIZE;
-  uint32_t bit = 1UL << (offset % EEPROM_WRITE_PAGE_SIZE);
-  if (!(dirty_pages[page] & bit)) {
-    dirty_pages[page] |= bit;
-    pending_bytes++;
-    if (pending_bytes > pending_max) pending_max = pending_bytes;
-  }
+  eeprom_stage_byte(offset, value);
+  if (before != eeprom_read_byte(addr)) eeprom_note_change(offset, 1U);
 }
 
 void eeprom_write_word(uint16_t *addr, uint16_t value)
