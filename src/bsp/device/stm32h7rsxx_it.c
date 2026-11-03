@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "bsp.h"
 #include "stm32h7rsxx_it.h"
+#include "usb_port.h"
 
 
 
@@ -116,6 +117,8 @@ void DebugMon_Handler(void)
   */
 void PendSV_Handler(void)
 {
+  /* The USB lifecycle executor (priority 15/0); a slice needs a thread turn. */
+  usbPortService();
 }
 
 /**
@@ -124,5 +127,7 @@ void PendSV_Handler(void)
 void SysTick_Handler(void)
 {
   HAL_IncTick();
+  /* USB lifecycle deadlines, missed-event checks and parked poll retries. */
+  usbPortTick();
   /* V251124R2: V251123R8 메인 루프 헬스체크 계측 제거 */
 }

@@ -13,18 +13,26 @@
 #include "eeprom.h"
 #include "qmk/port/port.h"
 #include "qmk/port/platforms/eeprom.h"
+#include "qmk/port/platforms/bootloader.h"
 
 #define USB_RESET_RESPONSE_GRACE_MS   (40U)                           // V251109R4: VIA 응답 송신 보장을 위한 최소 유예
 #define USB_BOOTMODE_APPLY_GRACE_MS   (500U)                          // Allow host follow-up requests while the main loop keeps servicing USB.
 #define USB_RESET_DETACH_DELAY_MS     (100U)                          // V251109R7: 호스트가 디태치를 감지할 최소 시간
+#define USB_SHUTDOWN_DEADLINE_US      (40000U)                        // Authorized shutdown wall time, from the seal
 
 
 #ifdef _USE_HW_USB
-#include "usbd_cmp.h"
-#include "usbd_hid.h"
+#include "usb_device.h"
+#include "usb_port.h"
+#include "usb_descriptors.h"
+#include "usb_hid/hid_port.h"
+#include "micros.h"
 
 
 static bool      is_init = false;
+static uint32_t teardown_failures;
+// Set once by the authorization commit; the sealed shutdown owns the only reset.
+static bool      shutdown_authorized;
 static UsbMode_t is_usb_mode = USB_NON_MODE;
 #ifdef BOOTMODE_ENABLE
 static UsbBootMode_t usb_boot_mode = USB_BOOT_MODE_DEFAULT_VALUE;                    // V251112R6: 보드별 기본값을 매크로로 분리
@@ -69,29 +77,6 @@ static volatile struct
   uint32_t ready_ms;
 } usb_reset_request = {false, 0U};
 
-USBD_HandleTypeDef USBD_Device;
-extern PCD_HandleTypeDef hpcd_USB_OTG_HS;
-
-extern USBD_DescriptorsTypeDef VCP_Desc;
-extern USBD_DescriptorsTypeDef MSC_Desc;
-extern USBD_DescriptorsTypeDef HID_Desc;
-extern USBD_DescriptorsTypeDef CMP_Desc;
-
-static USBD_DescriptorsTypeDef *p_desc = NULL;                             // V251123R6: USB 전역 상태를 항상 보관
-
-#if HW_USB_CMP == 1
-static uint8_t hid_ep_tbl[] = {
-  HID_EPIN_ADDR, 
-  HID_VIA_EP_IN, 
-  HID_VIA_EP_OUT,
-  HID_EXK_EP_IN,
-  };
-
-static uint8_t cdc_ep_tbl[] = {
-  CDC_IN_EP,
-  CDC_OUT_EP,
-  CDC_CMD_EP};
-#endif
 
 static const char *usbBootModeLabel(UsbBootMode_t mode)
 {
@@ -207,6 +192,12 @@ static bool usbBootModeWriteRaw(UsbBootMode_t mode)
     return false;
   }
 
+  // A sealed write would be dropped: report rejection and keep the RAM mode.
+  if (eeprom_admission_sealed())
+  {
+    return false;
+  }
+
   eeprom_update_dword((uint32_t *)addr, raw_mode);                         // V251112R4: QMK EEPROM 큐 경로로 BootMode 저장
   usb_boot_mode = mode;
   return true;
@@ -220,6 +211,12 @@ void usbBootModeApplyDefaults(void)
 
 bool usbScheduleGraceReset(uint32_t delay_ms)                              // V251109R4: VIA 응답을 보장하기 위한 리셋 유예 API
 {
+  // An authorized shutdown is never renewed or replaced.
+  if (shutdown_authorized)
+  {
+    return false;
+  }
+
   if (delay_ms == 0U)
   {
     delay_ms = USB_RESET_RESPONSE_GRACE_MS;
@@ -264,6 +261,64 @@ static void usbProcessBootModeApply(void)
 }
 #endif
 
+// Final recheck, both seals and shutdown admission in one short masked section,
+// with no foreground return or dispatch after the preliminary checks; IRQ-side
+// changes since then are covered by the recheck. False changed nothing.
+static bool usbAuthorizeShutdown(uint32_t *anchor_us)
+{
+  uint32_t mask = usbHidLock();
+  bool authorized = !usbHidViaResponsesPending() && bootloader_shutdown_seal();
+  if (authorized)
+  {
+    shutdown_authorized = true;
+    usb_reset_request.pending = false;
+    *anchor_us = micros();
+    // Retiring every producer closes VIA receive, dispatch and rearm before the mask drops.
+    usbPortShutdown(*anchor_us);
+  }
+  usbHidUnlock(mask);
+  return authorized;
+}
+
+// Nonreturning: interrupts stay enabled and the caller never resumes QMK, VIA,
+// CLI or persistence. It only publishes thread turns, reads the terminal and
+// the original wall deadline (which escapes independently of USB) and sleeps
+// while no work is sticky; OTG, SysTick and every published fact wake it.
+static void usbCompleteShutdown(uint32_t anchor_us)
+{
+  usb_shutdown_t result;
+  for (;;)
+  {
+    usbLifecycleThreadCheckpoint();
+    result = usbPortShutdownResult();
+    if (result != USB_SHUTDOWN_PENDING)
+    {
+      break;
+    }
+    if ((uint32_t)(micros() - anchor_us) >= USB_SHUTDOWN_DEADLINE_US)
+    {
+      result = usbPortShutdownEscape();
+      break;
+    }
+    // Checked and entered masked: an interrupt after the check stays pending,
+    // still wakes WFI and runs at the unmask, so no fact is slept through.
+    uint32_t mask = usbHidLock();
+    if (!usbLifecycleFactsPending())
+    {
+      __WFI();
+    }
+    usbHidUnlock(mask);
+  }
+  // USB failure must never prevent the requested MCU/boot reset.
+  if (result != USB_SHUTDOWN_OK) ++teardown_failures;
+  is_init     = false;                                                  // V251109R6: 재부팅 이후 usbBegin()을 강제하도록 초기화 상태 리셋
+  is_usb_mode = USB_NON_MODE;
+
+  delay(USB_RESET_DETACH_DELAY_MS);                                      // V251109R7: 호스트가 디태치를 감지할 시간을 제공
+
+  resetToReset();                                                        // V251109R4: VIA 응답 송신 이후에만 리셋 실행
+}
+
 static void usbProcessDeferredReset(void)
 {
   if (usb_reset_request.pending == false)
@@ -276,19 +331,15 @@ static void usbProcessDeferredReset(void)
     return;
   }
 
-  // V260909R1: 시간 유예는 durability/응답 완료의 증명이 아니다. 기다리는 동안 입력 루프는 계속 돈다.
-  if (eeprom_is_pending() || usbHidViaResponsesPending()) return;
+  // Pending prerequisites return to normal keyboard and application service.
+  // Response drain includes the live deferred command's reserved reply, even before enqueue.
+  // Persistence covers dirty bytes, a page in flight or awaiting retry, a pending
+  // prepare receipt, backend erase and an unfinished VIA CLEAN.
+  if (eeprom_persistence_pending() || usbHidViaResponsesPending()) return;
 
-  usb_reset_request.pending = false;
-
-  USBD_Stop(&USBD_Device);                                               // V251109R6: 리셋 전에 USB를 강제 분리
-  USBD_DeInit(&USBD_Device);
-  is_init     = false;                                                  // V251109R6: 재부팅 이후 usbBegin()을 강제하도록 초기화 상태 리셋
-  is_usb_mode = USB_NON_MODE;
-
-  delay(USB_RESET_DETACH_DELAY_MS);                                      // V251109R7: 호스트가 디태치를 감지할 시간을 제공
-
-  resetToReset();                                                        // V251109R4: VIA 응답 송신 이후에만 리셋 실행
+  uint32_t anchor_us;
+  if (!usbAuthorizeShutdown(&anchor_us)) return;
+  usbCompleteShutdown(anchor_us);
 }
 
 static bool usbHasPendingService(bool has_apply_request, bool has_reset_request)
@@ -341,118 +392,17 @@ bool usbInit(void)
 
 bool usbBegin(UsbMode_t usb_mode)
 {
-  is_init = true;
-
-  if (usb_mode == USB_CDC_MODE)
-  {
-    #if HW_USB_CDC == 1    
-    /* Init Device Library */
-    USBD_Init(&USBD_Device, &VCP_Desc, DEVICE_HS);
-
-    /* Add Supported Class */
-    USBD_RegisterClass(&USBD_Device, USBD_CDC_CLASS);
-
-    /* Add CDC Interface Class */
-    USBD_CDC_RegisterInterface(&USBD_Device, &USBD_CDC_fops);
-
-    /* Start Device Process */
-    USBD_Start(&USBD_Device);
-
-    // HAL_PWREx_EnableUSBVoltageDetector();
-
-    is_usb_mode = USB_CDC_MODE;
-
-    p_desc = &VCP_Desc;
-    logPrintf("[OK] usbBegin()\n");
-    logPrintf("     USB_CDC\r\n");
-    logPrintf("     BootMode  : %s\r\n", usbBootModeLabel(usbBootModeGet())); // V250923R1 Report selected polling mode
-    #endif
-  }
-  else if (usb_mode == USB_MSC_MODE)
-  {
-    #if HW_USB_MSC == 1
-    /* Init Device Library */
-    USBD_Init(&USBD_Device, &MSC_Desc, DEVICE_HS);
-
-    /* Add Supported Class */
-    USBD_RegisterClass(&USBD_Device, USBD_MSC_CLASS);
-
-    /* Add Storage callbacks for MSC Class */
-    USBD_MSC_RegisterStorage(&USBD_Device, &USBD_DISK_fops);
-
-    /* Start Device Process */
-    USBD_Start(&USBD_Device);
-
-    HAL_PWREx_EnableUSBVoltageDetector();
-
-    is_usb_mode = USB_MSC_MODE;
-
-    p_desc = &MSC_Desc;
-    logPrintf("[OK] usbBegin()\n");
-    logPrintf("     USB_MSC\r\n");
-    logPrintf("     BootMode  : %s\r\n", usbBootModeLabel(usbBootModeGet())); // V250923R1 Report selected polling mode
-    #endif
-  }
-  else if (usb_mode == USB_HID_MODE)
-  {
-    #if HW_USB_HID == 1
-    /* Init Device Library */
-    USBD_Init(&USBD_Device, &HID_Desc, DEVICE_HS);
-
-    /* Add Supported Class */
-    USBD_RegisterClass(&USBD_Device, USBD_HID_CLASS);
-
-    /* Start Device Process */
-    USBD_Start(&USBD_Device);
-
-    is_usb_mode = USB_HID_MODE;
-
-    p_desc = &HID_Desc;
-    logPrintf("[OK] usbBegin()\n");
-    logPrintf("     USB_HID\r\n");
-    logPrintf("     BootMode  : %s\r\n", usbBootModeLabel(usbBootModeGet())); // V250923R1 Report selected polling mode
-    #endif
-  }
-  else if (usb_mode == USB_CMP_MODE)
-  {
-    #if HW_USB_CMP == 1
-    USBD_Init(&USBD_Device, &CMP_Desc, DEVICE_HS);
-
-
-    /* Add Supported Class */
-    USBD_RegisterClassComposite(&USBD_Device, USBD_HID_CLASS, CLASS_TYPE_HID, hid_ep_tbl);
-    USBD_RegisterClassComposite(&USBD_Device, USBD_CDC_CLASS, CLASS_TYPE_CDC, cdc_ep_tbl);
-
-    USBD_CDC_RegisterInterface(&USBD_Device, &USBD_CDC_fops);
-
-    /* Start Device Process */
-    USBD_Start(&USBD_Device);
-
-    is_usb_mode = USB_CMP_MODE;                                                         // V251124R3: Composite 모드 캐시 보정
-
-    p_desc = &CMP_Desc;
-    logPrintf("[OK] usbBegin()\n");
-    logPrintf("     USB_CMP\r\n");
-    logPrintf("     BootMode  : %s\r\n", usbBootModeLabel(usbBootModeGet())); // V250923R1 Report selected polling mode
-    #endif
-  }
-  else
-  {
-    is_init = false;
-
-    logPrintf("[NG] usbBegin()\n");
-  }
-
+#if HW_USB_CDC
+  if (usb_mode != USB_CMP_MODE) return false;
+#else
+  if (usb_mode != USB_HID_MODE) return false;
+#endif
+  is_init = usbDeviceStart(!usbBootModeIsFullSpeed(), usbBootModeGetHsInterval());
+  is_usb_mode = is_init ? usb_mode : USB_NON_MODE;
   return is_init;
 }
 
-void usbDeInit(void)
-{
-  if (is_init == true)
-  {
-    USBD_DeInit(&USBD_Device);
-  }
-}
+uint32_t usbTeardownFailureCount(void) { return teardown_failures; }
 
 bool usbIsOpen(void)
 {
@@ -465,45 +415,27 @@ bool usbIsOpen(void)
 
 bool usbIsConnect(void)
 {
-  if (usbIsResetPending()) return false;
-  if (USBD_Device.pClassData == NULL)
-  {
-    return false;
-  }
-  if (USBD_Device.dev_state != USBD_STATE_CONFIGURED)
-  {
-    return false;
-  }
-  if (USBD_Device.dev_config == 0)
-  {
-    return false;
-  }
-  if (USBD_is_connected() == false)
-  {
-    return false;
-  }
-  
-  return true;
+  return usb_device.configured && !usb_device.suspended && !usb_device.reset_pending;
 }
 
 bool usbIsSuspended(void)
 {
-  return USBD_is_suspended();
+  return usbPortSuspended();
 }
 
 bool usbIsResetPending(void)
 {
-  return USBD_is_reset_pending();
+  return usb_device.reset_pending;
 }
 
 bool usbHostSeen(void)
 {
-  return USBD_host_seen();  // V260901R1
+  return usb_device.host_seen;
 }
 
-uint32_t usbSofCount(void)
+uint16_t usbFrameNumber(void)
 {
-  return USBD_sof_count();  // V260901R1
+  return usbPortFrameNumber();
 }
 
 UsbMode_t usbGetMode(void)
@@ -524,8 +456,7 @@ UsbType_t usbGetType(void)
 
 void OTG_HS_IRQHandler(void)
 {
-  usbPcdOnIrqEntry(&hpcd_USB_OTG_HS);
-  HAL_PCD_IRQHandler(&hpcd_USB_OTG_HS);
+  usbPortIrq();
 }
 
 
@@ -538,16 +469,8 @@ void cliCmd(cli_args_t *args)
   {
     uint16_t vid = 0;
     uint16_t pid = 0;
-    uint8_t *p_data;
-    uint16_t len = 0;
-
-
-    if (p_desc != NULL)
-    {
-      p_data = p_desc->GetDeviceDescriptor(USBD_SPEED_HIGH, &len);
-      vid = (p_data[ 9]<<8)|(p_data[ 8]<<0);
-      pid = (p_data[11]<<8)|(p_data[10]<<0);
-    }
+    vid = USB_VID;
+    pid = USB_PID;
 
     cliPrintf("USB VID     : 0x%04X\n", vid);
     cliPrintf("USB PID     : 0x%04X\n", pid);

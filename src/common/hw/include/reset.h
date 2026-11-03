@@ -25,6 +25,14 @@ extern "C" {
 #define MODE_BIT_MAX          2
 
 
+// Outcome of a boot-mode request. A sealed intent is checked before any RTC write.
+typedef enum
+{
+  RESET_MODE_ACCEPTED,
+  RESET_MODE_SEALED_SAME,
+  RESET_MODE_REJECTED,
+} reset_mode_result_t;
+
 bool resetInit(void);
 void resetLog(void);
 void resetToBoot(void);
@@ -34,6 +42,11 @@ uint32_t resetGetBits(void);
 void     resetSetBits(uint32_t data);
 void     resetSetBootMode(uint32_t data);
 uint32_t resetGetBootMode(void);
+
+reset_mode_result_t resetRequestBootMode(uint32_t data);
+// The intent is sealed only through bootloader_shutdown_seal(), one-way until MCU reset.
+bool     resetBootIntentIsSealed(void);
+uint32_t resetGetBootIntent(void);
 
 #endif
 

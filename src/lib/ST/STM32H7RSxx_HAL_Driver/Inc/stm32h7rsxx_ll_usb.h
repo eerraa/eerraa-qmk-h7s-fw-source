@@ -41,9 +41,6 @@ extern "C" {
 #define HAL_USB_TIMEOUT                                       0xF000000U
 #endif /* define HAL_USB_TIMEOUT */
 
-/* Bounded register polling; usable while interrupts/SysTick are masked. */
-#define USB_EP_STOP_MAX_POLLS 10000U
-
 #ifndef HAL_USB_CURRENT_MODE_MAX_DELAY_MS
 #define HAL_USB_CURRENT_MODE_MAX_DELAY_MS                           200U
 #endif /* define HAL_USB_CURRENT_MODE_MAX_DELAY_MS */
@@ -519,11 +516,9 @@ HAL_StatusTypeDef USB_WritePacket(const USB_OTG_GlobalTypeDef *USBx, uint8_t *sr
 void             *USB_ReadPacket(const USB_OTG_GlobalTypeDef *USBx, uint8_t *dest, uint16_t len);
 HAL_StatusTypeDef USB_EPSetStall(const USB_OTG_GlobalTypeDef *USBx, const USB_OTG_EPTypeDef *ep);
 HAL_StatusTypeDef USB_EPClearStall(const USB_OTG_GlobalTypeDef *USBx, const USB_OTG_EPTypeDef *ep);
-HAL_StatusTypeDef USB_EPStopXfer(const USB_OTG_GlobalTypeDef *USBx, USB_OTG_EPTypeDef *ep);
 HAL_StatusTypeDef USB_SetDevAddress(const USB_OTG_GlobalTypeDef *USBx, uint8_t address);
 HAL_StatusTypeDef USB_DevConnect(const USB_OTG_GlobalTypeDef *USBx);
 HAL_StatusTypeDef USB_DevDisconnect(const USB_OTG_GlobalTypeDef *USBx);
-HAL_StatusTypeDef USB_StopDevice(USB_OTG_GlobalTypeDef *USBx);
 HAL_StatusTypeDef USB_ActivateSetup(const USB_OTG_GlobalTypeDef *USBx);
 HAL_StatusTypeDef USB_EP0_OutStart(const USB_OTG_GlobalTypeDef *USBx, uint8_t dma, const uint8_t *psetup);
 uint8_t           USB_GetDevSpeed(const USB_OTG_GlobalTypeDef *USBx);

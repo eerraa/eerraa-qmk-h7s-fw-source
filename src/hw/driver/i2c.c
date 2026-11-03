@@ -1,5 +1,6 @@
 #include "i2c.h"
 #include "log.h"
+#include "peripheral_irq.h"
 
 
 
@@ -19,7 +20,6 @@
 #endif
 
 static uint32_t i2cGetTimming(uint32_t freq_khz);
-static void delayUs(uint32_t us);
 static int8_t i2cGetChannelFromHandle(I2C_HandleTypeDef *hi2c);
 static void i2cLogTimingOnce(uint8_t ch, I2C_HandleTypeDef *hi2c);
 #if CLI_USE(HW_I2C)
@@ -145,7 +145,7 @@ bool i2cIsInit(void)
 
 bool i2cBegin(uint8_t ch, uint32_t freq_khz)
 {
-  if (ch >= I2C_MAX_CH || i2cAsyncOwned(ch)) return false;  // V260909R1: 범위/단일 bus 소유권 검사
+  if (__get_IPSR() != 0U || ch >= I2C_MAX_CH || i2cAsyncOwned(ch)) return false;
 
   bool ret = false;
 
@@ -173,9 +173,8 @@ bool i2cBegin(uint8_t ch, uint32_t freq_khz)
       p_handle->Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
       p_handle->Init.NoStretchMode   = I2C_NOSTRETCH_DISABLE;
 
-      i2cReset(ch);
-
-      HAL_I2C_DeInit(p_handle);
+      is_begin[ch] = false;
+      if (HAL_I2C_DeInit(p_handle) != HAL_OK || !i2cReset(ch)) return false;
       if(HAL_I2C_Init(p_handle) != HAL_OK)
       {
         HAL_I2C_DeInit(p_handle);
@@ -256,48 +255,106 @@ bool i2cIsBegin(uint8_t ch)
   return is_begin[ch];
 }
 
-void i2cReset(uint8_t ch)
+static void i2cRecoveryDelay(void)
 {
-  if (ch >= I2C_MAX_CH || i2cAsyncOwned(ch)) return;  // V260909R1: 범위/단일 bus 소유권 검사
-
-  GPIO_InitTypeDef  GPIO_InitStruct;
-  i2c_tbl_t *p_pin = &i2c_tbl[ch];
-
-  lock();
-  GPIO_InitStruct.Pin       = p_pin->scl_pin;
-  GPIO_InitStruct.Mode      = GPIO_MODE_OUTPUT_OD;
-  GPIO_InitStruct.Pull      = GPIO_NOPULL;
-  GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_HIGH;
-  HAL_GPIO_Init(p_pin->scl_port, &GPIO_InitStruct);
-
-  GPIO_InitStruct.Pin       = p_pin->sda_pin;
-  GPIO_InitStruct.Mode      = GPIO_MODE_OUTPUT_OD;
-  GPIO_InitStruct.Pull      = GPIO_NOPULL;
-  HAL_GPIO_Init(p_pin->sda_port, &GPIO_InitStruct);
-
-
-  HAL_GPIO_WritePin(p_pin->scl_port, p_pin->scl_pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(p_pin->sda_port, p_pin->sda_pin, GPIO_PIN_SET);
-  delayUs(5);
-
-  for (int i = 0; i < 9; i++)
+  /* TIM5 is 300 MHz / 300 = 1 MHz with APB1 DIV2, for either TIMPRE.
+   * Six ticks prevent endpoint quantization shortening a 5 us phase. */
+  uint32_t start = micros();
+  while ((uint32_t)(micros() - start) < 6U)
   {
+  }
+}
 
-    HAL_GPIO_WritePin(p_pin->scl_port, p_pin->scl_pin, GPIO_PIN_RESET);
-    delayUs(5);
-    HAL_GPIO_WritePin(p_pin->scl_port, p_pin->scl_pin, GPIO_PIN_SET);
-    delayUs(5);
+static void i2cRecoveryPin(GPIO_TypeDef *port, uint32_t pin, GPIO_PinState state)
+{
+  HAL_GPIO_WritePin(port, pin, state);
+  __DSB();
+  i2cRecoveryDelay();
+}
+
+static bool i2cRecoverySclHigh(i2c_tbl_t *pin)
+{
+  HAL_GPIO_WritePin(pin->scl_port, pin->scl_pin, GPIO_PIN_SET);
+  __DSB();
+  uint32_t start = micros();
+  while (HAL_GPIO_ReadPin(pin->scl_port, pin->scl_pin) != GPIO_PIN_SET)
+    if ((uint32_t)(micros() - start) >= 6U) return false;
+  /* Start the high phase only after observing the physical line HIGH. */
+  i2cRecoveryDelay();
+  return true;
+}
+
+static void i2cRecoveryPins(i2c_tbl_t *pin, uint32_t mode)
+{
+  GPIO_InitTypeDef gpio = {0};
+  gpio.Mode = mode;
+  gpio.Pull = GPIO_NOPULL;
+  gpio.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  gpio.Alternate = GPIO_AF4_I2C3;
+  gpio.Pin = pin->scl_pin;
+  HAL_GPIO_Init(pin->scl_port, &gpio);
+  gpio.Pin = pin->sda_pin;
+  HAL_GPIO_Init(pin->sda_port, &gpio);
+}
+
+static bool i2cRecoveryWaveform(i2c_tbl_t *pin)
+{
+  if (!i2cRecoverySclHigh(pin)) return false;
+  /* ZD24C128A section 3.5: START if possible, nine clocks, START, STOP. */
+  if (HAL_GPIO_ReadPin(pin->sda_port, pin->sda_pin) == GPIO_PIN_SET)
+    i2cRecoveryPin(pin->sda_port, pin->sda_pin, GPIO_PIN_RESET);
+
+  for (uint32_t i = 0; i < 9U; ++i)
+  {
+    i2cRecoveryPin(pin->scl_port, pin->scl_pin, GPIO_PIN_RESET);
+    i2cRecoveryPin(pin->sda_port, pin->sda_pin, GPIO_PIN_SET);
+    if (!i2cRecoverySclHigh(pin)) return false;
   }
 
-  HAL_GPIO_WritePin(p_pin->scl_port, p_pin->scl_pin, GPIO_PIN_RESET);
-  delayUs(5);
-  HAL_GPIO_WritePin(p_pin->sda_port, p_pin->sda_pin, GPIO_PIN_RESET);
-  delayUs(5);
+  if (HAL_GPIO_ReadPin(pin->sda_port, pin->sda_pin) != GPIO_PIN_SET) return false;
+  i2cRecoveryPin(pin->sda_port, pin->sda_pin, GPIO_PIN_RESET);
+  i2cRecoveryPin(pin->scl_port, pin->scl_pin, GPIO_PIN_RESET);
+  if (!i2cRecoverySclHigh(pin)) return false;
+  i2cRecoveryPin(pin->sda_port, pin->sda_pin, GPIO_PIN_SET);
+  return HAL_GPIO_ReadPin(pin->sda_port, pin->sda_pin) == GPIO_PIN_SET
+      && HAL_GPIO_ReadPin(pin->scl_port, pin->scl_pin) == GPIO_PIN_SET;
+}
 
-  HAL_GPIO_WritePin(p_pin->scl_port, p_pin->scl_pin, GPIO_PIN_SET);
-  delayUs(5);
-  HAL_GPIO_WritePin(p_pin->sda_port, p_pin->sda_pin, GPIO_PIN_SET);
-  unLock();
+bool i2cReset(uint8_t ch)
+{
+  if (__get_IPSR() != 0U || ch >= I2C_MAX_CH || i2cAsyncOwned(ch)) return false;
+  i2c_tbl_t *pin = &i2c_tbl[ch];
+  I2C_HandleTypeDef *h = pin->p_hi2c;
+  if (h->State != HAL_I2C_STATE_RESET && h->State != HAL_I2C_STATE_READY) return false;
+
+  uint32_t timer_hz = HAL_RCC_GetPCLK1Freq() * 2U;
+  if (timer_hz != SystemCoreClock / 2U || timer_hz % 1000000U != 0U ||
+      (TIM5->CR1 & TIM_CR1_CEN) == 0U || TIM5->PSC != timer_hz / 1000000U - 1U) return false;
+
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_I2C3_CLK_ENABLE();
+  uint32_t irq;
+  if (!peripheralIrqSave(PERIPHERAL_IRQ_I2C3, &irq)) return false;
+  uint32_t cr1 = pin->p_i2c->CR1;
+  pin->p_i2c->CR1 = cr1 & ~(I2C_CR1_PE | I2C_CR1_TXIE | I2C_CR1_RXIE |
+      I2C_CR1_ADDRIE | I2C_CR1_NACKIE | I2C_CR1_STOPIE | I2C_CR1_TCIE | I2C_CR1_ERRIE);
+  __DSB();
+  peripheralIrqRestore(PERIPHERAL_IRQ_I2C3, irq);
+
+  /* Release output latches before GPIO takes over; no IRQ exclusion spans
+   * the waveform. The peripheral sources stay quiescent until AF is back. */
+  HAL_GPIO_WritePin(pin->scl_port, pin->scl_pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(pin->sda_port, pin->sda_pin, GPIO_PIN_SET);
+  __DSB();
+  i2cRecoveryPins(pin, GPIO_MODE_OUTPUT_OD);
+  bool recovered = i2cRecoveryWaveform(pin);
+  HAL_GPIO_WritePin(pin->scl_port, pin->scl_pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(pin->sda_port, pin->sda_pin, GPIO_PIN_SET);
+  i2cRecoveryPins(pin, GPIO_MODE_AF_OD);
+  pin->p_i2c->CR1 = cr1;
+  __DSB();
+  if (!recovered) is_begin[ch] = false;
+  return recovered;
 }
 
 bool i2cIsDeviceReady(uint8_t ch, uint8_t dev_addr)
@@ -359,13 +416,7 @@ bool i2cRecovery(uint8_t ch)
 {
   if (ch >= I2C_MAX_CH || i2cAsyncOwned(ch)) return false;  // V260909R1: 범위/단일 bus 소유권 검사
 
-  bool ret;
-
-  i2cReset(ch);
-
-  ret = i2cBegin(ch, i2c_freq[ch]);
-
-  return ret;
+  return i2cBegin(ch, i2c_freq[ch]);
 }
 
 bool i2cReadByte (uint8_t ch, uint16_t dev_addr, uint16_t reg_addr, uint8_t *p_data, uint32_t timeout)
@@ -608,20 +659,6 @@ void i2cGetReadyWaitStats(uint8_t ch, i2c_ready_wait_stats_t *p_stats)
   *p_stats = i2c_ready_wait_stats[ch];                                // V251112R9: Ready wait 통계 조회
 }
 
-void delayUs(uint32_t us)
-{
-  volatile uint32_t i;
-
-  for (i=0; i<us*1000; i++)
-  {
-
-  }
-}
-
-
-
-
-
 void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
 {
   if (i2cAsyncOnError(hi2c)) return;
@@ -666,9 +703,8 @@ void HAL_I2C_MspInit(I2C_HandleTypeDef* i2cHandle)
 
     /* I2C3 interrupt Init */
     HAL_NVIC_SetPriority(I2C3_EV_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(I2C3_EV_IRQn);
     HAL_NVIC_SetPriority(I2C3_ER_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(I2C3_ER_IRQn);
+    peripheralIrqEnable(PERIPHERAL_IRQ_I2C3);
   }
 }
 
@@ -689,8 +725,7 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* i2cHandle)
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_9);
 
     /* I2C3 interrupt Deinit */
-    HAL_NVIC_DisableIRQ(I2C3_EV_IRQn);
-    HAL_NVIC_DisableIRQ(I2C3_ER_IRQn);
+    peripheralIrqDisable(PERIPHERAL_IRQ_I2C3);
   }
 }
 

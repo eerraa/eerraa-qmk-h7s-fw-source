@@ -225,7 +225,7 @@ typedef struct
   * @{
   */
 HAL_StatusTypeDef HAL_PCD_Init(PCD_HandleTypeDef *hpcd);
-HAL_StatusTypeDef HAL_PCD_DeInit(PCD_HandleTypeDef *hpcd);
+/* Project: device teardown is the PCD lifecycle shutdown join, not DeInit/Stop. */
 void HAL_PCD_MspInit(PCD_HandleTypeDef *hpcd);
 void HAL_PCD_MspDeInit(PCD_HandleTypeDef *hpcd);
 
@@ -310,13 +310,15 @@ HAL_StatusTypeDef HAL_PCD_UnRegisterLpmCallback(PCD_HandleTypeDef *hpcd);
   * @{
   */
 HAL_StatusTypeDef HAL_PCD_Start(PCD_HandleTypeDef *hpcd);
-HAL_StatusTypeDef HAL_PCD_Stop(PCD_HandleTypeDef *hpcd);
 void HAL_PCD_IRQHandler(PCD_HandleTypeDef *hpcd);
 
 void HAL_PCD_SOFCallback(PCD_HandleTypeDef *hpcd);
 void HAL_PCD_SetupStageCallback(PCD_HandleTypeDef *hpcd);
 void HAL_PCD_ResetCallback(PCD_HandleTypeDef *hpcd);
 void HAL_PCD_ResetBeginCallback(PCD_HandleTypeDef *hpcd);
+/* Project: consume one pending raw USBRST occurrence exactly once (W1C after
+ * HAL_PCD_ResetBeginCallback). Returns 1 when it consumed one. */
+uint8_t HAL_PCD_ObserveReset(PCD_HandleTypeDef *hpcd);
 void HAL_PCD_SuspendCallback(PCD_HandleTypeDef *hpcd);
 void HAL_PCD_ResumeCallback(PCD_HandleTypeDef *hpcd);
 void HAL_PCD_ConnectCallback(PCD_HandleTypeDef *hpcd);
@@ -338,15 +340,13 @@ HAL_StatusTypeDef HAL_PCD_DevConnect(PCD_HandleTypeDef *hpcd);
 HAL_StatusTypeDef HAL_PCD_DevDisconnect(PCD_HandleTypeDef *hpcd);
 HAL_StatusTypeDef HAL_PCD_SetAddress(PCD_HandleTypeDef *hpcd, uint8_t address);
 HAL_StatusTypeDef HAL_PCD_EP_Open(PCD_HandleTypeDef *hpcd, uint8_t ep_addr, uint16_t ep_mps, uint8_t ep_type);
-HAL_StatusTypeDef HAL_PCD_EP_Close(PCD_HandleTypeDef *hpcd, uint8_t ep_addr);
+/* Project: endpoint close/abort/flush belong to the PCD lifecycle quiescence engine. */
 HAL_StatusTypeDef HAL_PCD_EP_Receive(PCD_HandleTypeDef *hpcd, uint8_t ep_addr, uint8_t *pBuf, uint32_t len);
 HAL_StatusTypeDef HAL_PCD_EP_Transmit(PCD_HandleTypeDef *hpcd, uint8_t ep_addr, uint8_t *pBuf, uint32_t len);
 HAL_StatusTypeDef HAL_PCD_EP_TransmitReady(PCD_HandleTypeDef *hpcd, uint8_t ep_addr,
                                           uint8_t *pBuf, uint32_t len);
 HAL_StatusTypeDef HAL_PCD_EP_SetStall(PCD_HandleTypeDef *hpcd, uint8_t ep_addr);
 HAL_StatusTypeDef HAL_PCD_EP_ClrStall(PCD_HandleTypeDef *hpcd, uint8_t ep_addr);
-HAL_StatusTypeDef HAL_PCD_EP_Flush(PCD_HandleTypeDef *hpcd, uint8_t ep_addr);
-HAL_StatusTypeDef HAL_PCD_EP_Abort(PCD_HandleTypeDef *hpcd, uint8_t ep_addr);
 HAL_StatusTypeDef HAL_PCD_ActivateRemoteWakeup(PCD_HandleTypeDef *hpcd);
 HAL_StatusTypeDef HAL_PCD_DeActivateRemoteWakeup(PCD_HandleTypeDef *hpcd);
 #if defined (USB_OTG_FS) || defined (USB_OTG_HS)

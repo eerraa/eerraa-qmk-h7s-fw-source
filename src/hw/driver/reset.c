@@ -4,6 +4,7 @@
 #ifdef _USE_HW_RESET
 #include "rtc.h"
 #include "cli.h"
+#include "qmk/port/platforms/shutdown_seal_internal.h"
 
 #if CLI_USE(HW_RESET)
 static void cliReset(cli_args_t *args);
@@ -12,6 +13,9 @@ static void cliReset(cli_args_t *args);
 static bool is_init = false;
 static uint32_t reset_bits = 0;
 static uint32_t boot_mode = 0;
+// Mirrors HW_RTC_BOOT_MODE: every write after resetInit goes through resetRequestBootMode.
+static uint32_t boot_intent = 0;
+static bool boot_intent_sealed = false;
 
 
 static const char *reset_bit_str[] = 
@@ -101,7 +105,11 @@ void resetLog(void)
 
 void resetToBoot(void)
 {
-  resetSetBootMode(1<<MODE_BIT_BOOT);
+  // A sealed shutdown owns the only reset; a direct route cannot compete with it.
+  if (resetRequestBootMode(1<<MODE_BIT_BOOT) != RESET_MODE_ACCEPTED)
+  {
+    return;
+  }
   resetToReset();
 }
 
@@ -122,13 +130,39 @@ void resetSetBits(uint32_t data)
 
 void resetSetBootMode(uint32_t data)
 {
-  boot_mode = data;
-  rtcSetReg(HW_RTC_BOOT_MODE, data);
+  (void)resetRequestBootMode(data);
 }
 
 uint32_t resetGetBootMode(void)
 {
   return boot_mode;
+}
+
+reset_mode_result_t resetRequestBootMode(uint32_t data)
+{
+  if (boot_intent_sealed)
+  {
+    return data == boot_intent ? RESET_MODE_SEALED_SAME : RESET_MODE_REJECTED;
+  }
+  boot_mode   = data;
+  boot_intent = data;
+  rtcSetReg(HW_RTC_BOOT_MODE, data);
+  return RESET_MODE_ACCEPTED;
+}
+
+void resetSealBootIntent(void)
+{
+  boot_intent_sealed = true;
+}
+
+bool resetBootIntentIsSealed(void)
+{
+  return boot_intent_sealed;
+}
+
+uint32_t resetGetBootIntent(void)
+{
+  return boot_intent;
 }
 
 
@@ -153,21 +187,28 @@ void cliReset(cli_args_t *args)
 
   if (args->argc == 1 && args->isStr(0, "boot"))
   {
-    resetSetBootMode(1<<MODE_BIT_BOOT);
-    resetToReset();
+    if (resetRequestBootMode(1<<MODE_BIT_BOOT) == RESET_MODE_ACCEPTED)
+    {
+      resetToReset();
+    }
     ret = true;
   }
 
   if (args->argc == 1 && args->isStr(0, "update"))
   {
-    resetSetBootMode(1<<MODE_BIT_UPDATE);
-    resetToReset();
+    if (resetRequestBootMode(1<<MODE_BIT_UPDATE) == RESET_MODE_ACCEPTED)
+    {
+      resetToReset();
+    }
     ret = true;
   }
 
   if (args->argc == 1 && args->isStr(0, "reset"))
   {
-    resetToReset();
+    if (!boot_intent_sealed)
+    {
+      resetToReset();
+    }
     ret = true;
   }
 

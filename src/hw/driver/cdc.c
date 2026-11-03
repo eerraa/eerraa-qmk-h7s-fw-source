@@ -12,7 +12,7 @@
 
 
 #ifdef _USE_HW_CDC
-#include "usb/usb_cdc/usbd_cdc_if.h"
+#include "usb/usb_cdc/cdc_if.h"
 
 
 

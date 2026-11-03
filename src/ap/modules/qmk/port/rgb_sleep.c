@@ -34,9 +34,10 @@ static uint16_t rgb_sleep_normalized_seconds(uint16_t seconds);
 
 static rgb_sleep_storage_t rgb_sleep_store;
 static bool                rgb_sleep_dark;
-static bool                rgb_sleep_sof_seen;
-static uint32_t            rgb_sleep_last_sof_count;
-static uint32_t            rgb_sleep_last_sof_ms;
+static bool                rgb_sleep_frame_seen;
+static uint16_t            rgb_sleep_last_frame;
+static uint32_t            rgb_sleep_last_frame_ms;
+static uint32_t            rgb_sleep_sample_ms;
 
 EECONFIG_DEBOUNCE_HELPER_CHECKED(rgb_sleep_cfg, EECONFIG_USER_RGB_SLEEP, rgb_sleep_store);
 
@@ -122,9 +123,10 @@ void rgb_sleep_init(void)
   }
   rgb_sleep_store.timeout_seconds = rgb_sleep_normalized_seconds(rgb_sleep_store.timeout_seconds);
   rgb_sleep_dark             = false;
-  rgb_sleep_sof_seen         = false;
-  rgb_sleep_last_sof_count   = usbSofCount();
-  rgb_sleep_last_sof_ms      = timer_read32();
+  rgb_sleep_frame_seen       = false;
+  rgb_sleep_last_frame       = usbFrameNumber();
+  rgb_sleep_last_frame_ms    = timer_read32();
+  rgb_sleep_sample_ms        = rgb_sleep_last_frame_ms;
 }
 
 static void rgb_sleep_apply_rgb(bool want_dark)
@@ -144,29 +146,37 @@ static void rgb_sleep_apply_rgb(bool want_dark)
 
 void rgb_sleep_task(void)
 {
-  uint32_t sof_count;
-  bool     host_gone;
+  uint32_t now = timer_read32();
+  bool     suspended = usbIsSuspended();
+  bool     frames_lost;
   bool     want_dark;
 
-  sof_count = usbSofCount();
-  if (sof_count != rgb_sleep_last_sof_count)
+  // The received frame number advances while the SOF interrupt is masked, so
+  // host loss needs no SOF interrupt. One controller read per millisecond.
+  if (now != rgb_sleep_sample_ms)
   {
-    rgb_sleep_last_sof_count = sof_count;
-    rgb_sleep_last_sof_ms    = timer_read32();
-    rgb_sleep_sof_seen       = true;
-  }
+    uint32_t gap   = now - rgb_sleep_sample_ms;
+    uint16_t frame = usbFrameNumber();
 
-  host_gone = false;
-  if (usbHostSeen() && rgb_sleep_sof_seen)
-  {
-    if (timer_elapsed32(rgb_sleep_last_sof_ms) >= RGB_SLEEP_SOF_STALE_MS)
+    rgb_sleep_sample_ms = now;
+    if (frame != rgb_sleep_last_frame || gap >= RGB_SLEEP_FRAME_SAMPLE_MAX_MS)
     {
-      host_gone = true;  // V260901R1: Suspend 콜백이 없어도 SOF가 끊기면 호스트가 사라진 것으로 본다
+      rgb_sleep_frame_seen    = rgb_sleep_frame_seen || frame != rgb_sleep_last_frame;
+      rgb_sleep_last_frame    = frame;
+      rgb_sleep_last_frame_ms = now;
+    }
+    else if (suspended)
+    {
+      rgb_sleep_last_frame_ms = now;  // Suspend is not host loss: staleness never accrues in it
     }
   }
 
-  want_dark = rgb_sleep_policy_local_requested(usbIsSuspended(),
-                                               host_gone,
+  // Frozen frames outside Suspend mean the host is gone, even without a Suspend callback.
+  frames_lost = usbHostSeen() && rgb_sleep_frame_seen && !suspended &&
+                timer_elapsed32(rgb_sleep_last_frame_ms) >= RGB_SLEEP_SOF_STALE_MS;
+
+  want_dark = rgb_sleep_policy_local_requested(suspended,
+                                               frames_lost,
                                                rgb_sleep_enabled(),
                                                rgb_sleep_timeout_seconds(),
                                                last_matrix_activity_elapsed());

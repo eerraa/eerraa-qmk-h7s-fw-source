@@ -1,0 +1,4 @@
+# Preserve upstream whitespace; project-authored glue keeps normal checks.
+/machine/arm/* -whitespace
+/string/*.c -whitespace
+/COPYING.NEWLIB -whitespace

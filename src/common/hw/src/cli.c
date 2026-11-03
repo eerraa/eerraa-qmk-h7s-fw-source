@@ -10,6 +10,8 @@
 
 #include "cli.h"
 #include "uart.h"
+#include "format.h"
+#include "usb_lifecycle.h"
 
 
 #ifdef _USE_HW_CLI
@@ -598,11 +600,11 @@ void cliPrintf(const char *fmt, ...)
 {
   va_list arg;
   va_start (arg, fmt);
-  int32_t len;
+  size_t len;
   cli_t *p_cli = &cli_node;
 
 
-  len = vsnprintf(p_cli->print_buffer, 256, fmt, arg);
+  len = formatVscnprintf(p_cli->print_buffer, sizeof(p_cli->print_buffer), fmt, arg);
   va_end (arg);
 
   uartWrite(p_cli->ch, (uint8_t *)p_cli->print_buffer, len);
@@ -714,6 +716,8 @@ bool cliKeepLoop(void)
   cli_t *p_cli = &cli_node;
 
 
+  // CLI loops that never reach cliLoopIdle still grant publish-only USB lifecycle thread turns.
+  usbLifecycleThreadCheckpoint();
   if (uartAvailable(p_cli->ch) == 0)
   {
     return true;
@@ -772,10 +776,11 @@ void cliShowList(cli_args_t *args)
 void cliMemoryDump(cli_args_t *args)
 {
   int idx, size = 16;
-  unsigned int *addr;
-  int idx1, i;
-  unsigned int *ascptr;
-  unsigned char asc[4];
+  volatile const unsigned int *addr;
+  /* As in U-Boot's print_buffer(), read each word once and derive the ASCII
+   * column from that copy: a dumped register may have read side effects. */
+  unsigned int line[4];
+  int idx1;
 
   int    argc = args->argc;
   char **argv = args->argv;
@@ -791,8 +796,7 @@ void cliMemoryDump(cli_args_t *args)
   {
     size = (int)strtoul((const char * ) argv[1], (char **)NULL, (int) 0);
   }
-  addr   = (unsigned int *)strtoul((const char * ) argv[0], (char **)NULL, (int) 0);
-  ascptr = (unsigned int *)addr;
+  addr   = (volatile const unsigned int *)strtoul((const char * ) argv[0], (char **)NULL, (int) 0);
 
   cliPrintf("\n   ");
   for (idx = 0; idx<size; idx++)
@@ -801,26 +805,24 @@ void cliMemoryDump(cli_args_t *args)
     {
       cliPrintf(" 0x%08X: ", (unsigned int)addr);
     }
-    cliPrintf(" 0x%08X", *(addr));
+    line[idx%4] = *addr;
+    cliPrintf(" 0x%08X", line[idx%4]);
 
     if ((idx%4) == 3)
     {
+      const unsigned char *asc = (const unsigned char *)line;
+
       cliPrintf ("  |");
-      for (idx1= 0; idx1< 4; idx1++)
+      for (idx1 = 0; idx1 < (int)sizeof(line); idx1++)
       {
-        memcpy((char *)asc, (char *)ascptr, 4);
-        for (i=0;i<4;i++)
+        if (asc[idx1] > 0x1f && asc[idx1] < 0x7f)
         {
-          if (asc[i] > 0x1f && asc[i] < 0x7f)
-          {
-            cliPrintf("%c", asc[i]);
-          }
-          else
-          {
-            cliPrintf(".");
-          }
+          cliPrintf("%c", asc[idx1]);
         }
-        ascptr+=1;
+        else
+        {
+          cliPrintf(".");
+        }
       }
       cliPrintf("|\n   ");
       delay(1);

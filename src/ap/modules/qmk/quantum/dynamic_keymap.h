@@ -69,4 +69,19 @@ void     dynamic_keymap_macro_reset(void);
 bool     dynamic_keymap_macro_reset_checked(void);
 bool     dynamic_keymap_macro_set_buffer_checked(uint16_t offset, uint16_t size, uint8_t *data);
 
+typedef enum { DYNAMIC_MACRO_DONE, DYNAMIC_MACRO_PENDING, DYNAMIC_MACRO_FAILED } dynamic_macro_result_t;
+typedef enum { DYNAMIC_MACRO_INSPECT, DYNAMIC_MACRO_INVALIDATE, DYNAMIC_MACRO_PAYLOAD } dynamic_macro_phase_t;
+typedef struct {
+    dynamic_macro_result_t result;
+    dynamic_macro_phase_t phase;
+    uint16_t offset, size, cursor;
+    bool reset, closes;
+} dynamic_macro_command_t;
+dynamic_macro_result_t dynamic_keymap_macro_set_begin(dynamic_macro_command_t *command, uint16_t offset, uint16_t size, const uint8_t *data);
+dynamic_macro_result_t dynamic_keymap_macro_reset_begin(dynamic_macro_command_t *command);
+dynamic_macro_result_t dynamic_keymap_macro_step(dynamic_macro_command_t *command, const uint8_t *data);
+// Deferred VIA handlers use the transaction context owned by via_hid_task.
+dynamic_macro_result_t via_hid_macro_set(uint16_t offset, uint16_t size, const uint8_t *data);
+dynamic_macro_result_t via_hid_macro_reset(void);
+
 void dynamic_keymap_macro_send(uint8_t id);

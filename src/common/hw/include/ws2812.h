@@ -20,9 +20,12 @@ extern "C" {
 #define WS2812_COLOR_OFF        WS2812_COLOR(  0,   0,   0)
 
 
+/* Foreground-only APIs, including GPIO mode changes. Init rejects an owned
+ * frame; service completion/abort first before reinitializing. */
 bool ws2812Init(void);
 void ws2812SetColor(uint32_t ch, uint32_t color);
-/* Main-loop API: refresh accepts the latest complete work frame; DMA is immutable.
+/* Refresh accepts the latest desired GRB state; DMA is immutable until released.
+ * Expansion is deferred to foreground service after ownership is released.
  * A generation is complete only after its frame (or a newer one) and RESET.
  * Outstanding generations must span less than 2^31 submissions. */
 bool ws2812Refresh(void);

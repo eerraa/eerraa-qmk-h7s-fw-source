@@ -33,7 +33,7 @@ bool i2cInit(void);
 bool i2cIsInit(void);
 bool i2cBegin(uint8_t ch, uint32_t freq_khz);
 bool i2cIsBegin(uint8_t ch);
-void i2cReset(uint8_t ch);
+bool i2cReset(uint8_t ch);
 bool i2cIsDeviceReady(uint8_t ch, uint8_t dev_addr);
 bool i2cRecovery(uint8_t ch);
 bool i2cReadByte (uint8_t ch, uint16_t dev_addr, uint16_t reg_addr, uint8_t *p_data, uint32_t timeout);

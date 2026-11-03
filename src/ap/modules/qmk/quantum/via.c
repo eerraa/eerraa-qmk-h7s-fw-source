@@ -478,11 +478,15 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
         case id_dynamic_keymap_macro_set_buffer: {
             uint16_t offset = (command_data[0] << 8) | command_data[1];
             uint16_t size   = command_data[2]; // size <= 28
-            if (!dynamic_keymap_macro_set_buffer_checked(offset, size, &command_data[3])) *command_id = id_unhandled;
+            dynamic_macro_result_t result = via_hid_macro_set(offset, size, &command_data[3]);
+            if (result == DYNAMIC_MACRO_PENDING) return;
+            if (result == DYNAMIC_MACRO_FAILED) *command_id = id_unhandled;
             break;
         }
         case id_dynamic_keymap_macro_reset: {
-            if (!dynamic_keymap_macro_reset_checked()) *command_id = id_unhandled;
+            dynamic_macro_result_t result = via_hid_macro_reset();
+            if (result == DYNAMIC_MACRO_PENDING) return;
+            if (result == DYNAMIC_MACRO_FAILED) *command_id = id_unhandled;
             break;
         }
         case id_dynamic_keymap_get_layer_count: {

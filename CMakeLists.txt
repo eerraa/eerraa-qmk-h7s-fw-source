@@ -18,6 +18,9 @@ project(${PRJ_NAME}
 
 set(EXECUTABLE ${PRJ_NAME}.elf)
 
+# 배포 구성은 HID 전용이다. ON이면 같은 HID 3개 인터페이스에 CDC를 더한 VCOM 복합 장치를 빌드한다.
+option(ERA_USB_VCOM "Build the HID + CDC composite (VCOM) USB configuration" OFF)
+
 
 include(src/ap/modules/qmk/CMakeLists.txt)
 
@@ -31,7 +34,6 @@ file(GLOB SRC_FILES CONFIGURE_DEPENDS
   src/bsp/*.c
   src/bsp/device/*.c
 
-  src/lib/ST/STM32_USB_Device_Library/Core/Src/*.c
 )
 
 # 하위폴더에 있는 파일까지 포함한다.
@@ -57,6 +59,11 @@ foreach(TMP_PATH ${SRC_FILES_RECURSE})
   endforeach(EXCLUDE_PATH) 
 endforeach(TMP_PATH)
 
+if(ERA_USB_VCOM)
+  list(FILTER SRC_FILES_RECURSE EXCLUDE REGEX "/usb/usb_cdc/cdc_disabled\\.c$")
+else()
+  list(FILTER SRC_FILES_RECURSE EXCLUDE REGEX "/usb/usb_cdc/cdc_acm\\.c$")
+endif()
 
 add_executable(${EXECUTABLE} 
   ${SRC_FILES}
@@ -64,6 +71,41 @@ add_executable(${EXECUTABLE}
   ${QMK_SRC_FILES}
 )
 
+
+
+# Match the pinned full-newlib multilib speed build, independently of the
+# firmware target's optimization and Cortex-M7 scheduling flags.
+set(ERA_NEWLIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/lib/newlib)
+add_library(era_newlib_memory OBJECT
+  ${ERA_NEWLIB_DIR}/machine/arm/memcpy.S
+  ${ERA_NEWLIB_DIR}/string/memset.c
+  ${ERA_NEWLIB_DIR}/string/memmove.c
+  ${ERA_NEWLIB_DIR}/string/memcmp.c
+)
+target_include_directories(era_newlib_memory PRIVATE ${ERA_NEWLIB_DIR}/glue)
+target_compile_options(era_newlib_memory PRIVATE
+  -march=armv7e-m
+  -mthumb
+  -mfpu=fpv5-d16
+  -mfloat-abi=hard
+  -O2
+  -fno-builtin
+  -fno-tree-loop-distribute-patterns
+  -fdata-sections
+  -ffunction-sections
+  -fstack-usage
+  -Wmissing-field-initializers
+  -Wuninitialized
+  -Wall
+  -g3
+)
+target_sources(${EXECUTABLE} PRIVATE $<TARGET_OBJECTS:era_newlib_memory>)
+target_link_options(${EXECUTABLE} PRIVATE
+  -Wl,--undefined=memcpy,--undefined=memset,--undefined=memmove,--undefined=memcmp
+)
+# Libraries must follow the project objects: an earlier -lc can extract
+# nano's memset to satisfy crt0 before seeing our strong definition.
+target_link_libraries(${EXECUTABLE} PRIVATE c m stdc++ supc++)
 
 
 target_include_directories(${EXECUTABLE} PRIVATE 
@@ -82,21 +124,22 @@ target_include_directories(${EXECUTABLE} PRIVATE
   src/hw/driver/usb
   src/hw/driver/usb/usb_cdc
   src/hw/driver/usb/usb_hid
-  src/hw/driver/usb/usb_cmp
   src/hw/driver/eeprom
 
   src/lib/ST/CMSIS/Include
   src/lib/ST/CMSIS/Device/ST/STM32H7RSxx/Include
   src/lib/ST/STM32H7RSxx_HAL_Driver/Inc
-  src/lib/ST/STM32_USB_Device_Library/Core/Inc
-
   ${QMK_INC_DIR}
 )
 
 target_compile_definitions(${EXECUTABLE} PRIVATE
   -DSTM32H7S3xx
-  -DUSE_HAL_DRIVER  
+  -DUSE_HAL_DRIVER
   )
+
+if (ERA_USB_VCOM)
+  target_compile_definitions(${EXECUTABLE} PRIVATE _USE_HW_VCOM)
+endif()
 
 target_compile_options(${EXECUTABLE} PRIVATE
   -mcpu=cortex-m7
@@ -114,7 +157,7 @@ target_compile_options(${EXECUTABLE} PRIVATE
 
   -Wall
   -g3
-  -Og
+  -O2
   )
 
 target_link_options(${EXECUTABLE} PRIVATE
@@ -125,10 +168,6 @@ target_link_options(${EXECUTABLE} PRIVATE
   -mfpu=fpv5-d16
   -mfloat-abi=hard
   -specs=nano.specs
-  -lc
-  -lm
-  -lstdc++
-  -lsupc++
   -fno-rtti
   # -lnosys
   -Wl,-Map=${PRJ_NAME}.map,--cref

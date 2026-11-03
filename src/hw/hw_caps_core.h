@@ -20,7 +20,7 @@
 #endif
 
 // #define _USE_HW_QSPI
-// #define _USE_HW_VCOM
+// _USE_HW_VCOM(VCOM 복합 구성)은 CMake 옵션 -DERA_USB_VCOM=ON으로 켠다.
 
 
 #endif

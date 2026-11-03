@@ -10,6 +10,8 @@
 
 #include "log.h"
 #include "uart.h"
+#include "format.h"
+#include <string.h>
 #ifdef _USE_HW_CLI
 #include "cli.h"
 #endif
@@ -121,13 +123,15 @@ bool logOpen(uint8_t ch, uint32_t baud)
   return is_open;
 }
 
-bool logBufPrintf(log_buf_t *p_log, char *p_data, uint32_t length)
+static bool logBufWrite(log_buf_t *p_log, const char *p_data, uint32_t length, uint32_t text_length)
 {
   uint32_t buf_last;
   uint8_t *p_buf;
-  int buf_len;
+  uint32_t buf_len = 5 + text_length;
+  static const char hex[] = "0123456789ABCDEF";
 
 
+  // Keep the historical admission reserve, including bytes after a payload NUL.
   buf_last = p_log->buf_index + length + 8;
   if (buf_last > p_log->buf_length_max)
   {
@@ -142,7 +146,13 @@ bool logBufPrintf(log_buf_t *p_log, char *p_data, uint32_t length)
 
   p_buf = &p_log->buf[p_log->buf_index];
 
-  buf_len = snprintf((char *)p_buf, length + 8, "%04X\t%s", p_log->line_index, p_data);
+  for (uint32_t i = 0; i < 4; i++)
+  {
+    p_buf[i] = hex[(p_log->line_index >> (12 - 4 * i)) & 0xF];
+  }
+  p_buf[4] = '\t';
+  memcpy(&p_buf[5], p_data, text_length);
+  p_buf[buf_len] = 0;
   p_log->line_index++;
   p_log->buf_index += buf_len;
 
@@ -159,14 +169,17 @@ void logPrintf(const char *fmt, ...)
 {
 
   va_list args;
-  int len;
+  size_t len;
+  size_t text_length;
 
 
   if (is_init != true) return;
 
   lock();
   va_start(args, fmt);
-  len = vsnprintf(print_buf, 256, fmt, args);
+  len = formatVscnprintf(print_buf, sizeof(print_buf), fmt, args);
+  const char *nul = memchr(print_buf, '\0', len);
+  text_length = nul ? (size_t)(nul - print_buf) : len;
 
   if (is_open == true && is_enable == true)
   {
@@ -175,9 +188,9 @@ void logPrintf(const char *fmt, ...)
 
   if (is_boot_log)
   {
-    logBufPrintf(&log_buf_boot, print_buf, len);
+    logBufWrite(&log_buf_boot, print_buf, len, text_length);
   }
-  logBufPrintf(&log_buf_list, print_buf, len);
+  logBufWrite(&log_buf_list, print_buf, len, text_length);
 
   va_end(args);
 

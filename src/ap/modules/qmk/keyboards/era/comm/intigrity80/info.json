@@ -1,7 +1,7 @@
 {
-    "manufacturer": "Hancheol Cho",
-    "keyboard_name": "VENOM-60MX-7U",
-    "maintainer": "chcbaram",
+    "manufacturer": "ERA",
+    "keyboard_name": "INTIGRITY80",
+    "maintainer": "eerraa",
     "bootloader": "STM32U5A5",
     "diode_direction": "ROW2COL",
     "ws2812": {

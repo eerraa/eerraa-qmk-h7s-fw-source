@@ -838,6 +838,8 @@ HAL_StatusTypeDef HAL_DMAEx_List_Start(DMA_HandleTypeDef *const hdma)
     }
 
     /* Enable DMA channel */
+    /* Project modification: publish the final descriptor writes before fetch. */
+    __DSB();
     __HAL_DMA_ENABLE(hdma);
   }
   else
@@ -917,6 +919,8 @@ HAL_StatusTypeDef HAL_DMAEx_List_Start_IT(DMA_HandleTypeDef *const hdma)
     }
 
     /* Enable DMA channel */
+    /* Project modification: publish the final descriptor writes before fetch. */
+    __DSB();
     __HAL_DMA_ENABLE(hdma);
   }
   else

@@ -1,15 +1,83 @@
 #include "bsp.h"
 #include "hw_def.h"
+#include "usb_lifecycle.h"
 
 
 static void SystemClock_Config(void);
 static void bspMpuInit(void);
+extern void bspResetMpu(void);
+
+static void bspStopInheritedDma(uint32_t first, uint32_t last, uint32_t stride)
+{
+  for (uint32_t address = first; address <= last; address += stride)
+  {
+    DMA_Channel_TypeDef *channel = (DMA_Channel_TypeDef *)address;
+    if ((channel->CCR & DMA_CCR_EN) != 0U)
+    {
+      /* RM0477: SUSP is the request; SUSPF is a separate sticky event.
+         Resume even an inherited suspended channel before establishing a new
+         request/acknowledgement. Its old buffers still belong to the loader. */
+      channel->CCR &= ~DMA_CCR_SUSP;
+      channel->CFCR = DMA_CFCR_SUSPF;
+      __DSB();
+      channel->CCR |= DMA_CCR_SUSP;
+      /* No HAL tick exists yet. Fail closed if the bus master cannot drain. */
+      while ((channel->CCR & DMA_CCR_EN) != 0U && (channel->CSR & DMA_CSR_SUSPF) == 0U)
+      {
+      }
+    }
+    channel->CCR |= DMA_CCR_RESET;
+    __DSB();
+    while ((channel->CCR & DMA_CCR_EN) != 0U)
+    {
+    }
+  }
+}
+
+/* Runs on the DTCM stack, before SystemInit and all C data initialization.
+ * Inspected loaders copy the image through Normal Shareable SRAM (uncached,
+ * or write-through with SIWT), even in cache-enabled builds. Old dirty lines
+ * are not authoritative. Cleaning them could overwrite the newly copied image. */
+void bspPrepareEntry(void)
+{
+  uint32_t banks = (SCnSCB->ICTR & SCnSCB_ICTR_INTLINESNUM_Msk) + 1U;
+  for (uint32_t bank = 0; bank < banks; bank++)
+  {
+    NVIC->ICER[bank] = 0xFFFFFFFFU;
+    NVIC->ICPR[bank] = 0xFFFFFFFFU;
+  }
+  SysTick->CTRL = 0;
+  SysTick->LOAD = 0;
+  SysTick->VAL = 0;
+  SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk | SCB_ICSR_PENDSVCLR_Msk;
+  __set_BASEPRI(0);
+  __set_FAULTMASK(0);
+  __DSB();
+  __ISB();
+  __HAL_RCC_GPDMA1_CLK_ENABLE();
+  __HAL_RCC_HPDMA1_CLK_ENABLE();
+  bspStopInheritedDma(GPDMA1_Channel0_BASE, GPDMA1_Channel15_BASE,
+                      GPDMA1_Channel1_BASE - GPDMA1_Channel0_BASE);
+  bspStopInheritedDma(HPDMA1_Channel0_BASE, HPDMA1_Channel15_BASE,
+                      HPDMA1_Channel1_BASE - HPDMA1_Channel0_BASE);
+  __HAL_RCC_GPDMA1_FORCE_RESET();
+  __HAL_RCC_HPDMA1_FORCE_RESET();
+  __DSB();
+  __HAL_RCC_GPDMA1_RELEASE_RESET();
+  __HAL_RCC_HPDMA1_RELEASE_RESET();
+  __HAL_RCC_GPDMA1_CLK_DISABLE();
+  __HAL_RCC_HPDMA1_CLK_DISABLE();
+  __DSB();
+  /* Reset_Handler has already cleared CCR.DC without writeback. */
+  SCB_InvalidateDCache();
+}
 
 bool bspInit(void)
 {
   bool ret = true;
 
-
+  bspMpuInit();
+  __enable_irq();
   HAL_Init();
 
 
@@ -20,8 +88,6 @@ bool bspInit(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
 
-
-  bspMpuInit();
 
   return ret;
 }
@@ -38,7 +104,18 @@ void delay(uint32_t ms)
     HAL_Delay(ms);
   }
 #else
-  HAL_Delay(ms);
+  // HAL_Delay's minimum-wait arithmetic, with a publish-only USB lifecycle turn at each poll.
+  uint32_t start = HAL_GetTick();
+  uint32_t wait  = ms;
+
+  if (wait < HAL_MAX_DELAY)
+  {
+    wait += (uint32_t)HAL_GetTickFreq();
+  }
+  while ((HAL_GetTick() - start) < wait)
+  {
+    usbLifecycleThreadCheckpoint();
+  }
 #endif
 }
 
@@ -130,8 +207,9 @@ void bspMpuInit(void)
 
   MPU_Region_InitTypeDef MPU_InitStruct = {0};
 
-  /* Disables the MPU */
-  HAL_MPU_Disable();
+  /* Entry discarded obsolete cache state before C initialization. Caches
+     remain disabled until hwInit, so no new dirty lines cross this change. */
+  bspResetMpu();
 
 
   // MPU 설정 메모리 크기에 정렬된 주소가 입력되어야 함.
@@ -159,7 +237,7 @@ void bspMpuInit(void)
   MPU_InitStruct.TypeExtField     = MPU_TEX_LEVEL1;
   MPU_InitStruct.IsCacheable      = MPU_ACCESS_CACHEABLE;
   MPU_InitStruct.IsBufferable     = MPU_ACCESS_BUFFERABLE;
-  MPU_InitStruct.IsShareable      = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.IsShareable      = MPU_ACCESS_NOT_SHAREABLE;
   MPU_InitStruct.SubRegionDisable = 0x0;
   MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
   MPU_InitStruct.DisableExec      = MPU_INSTRUCTION_ACCESS_ENABLE;
@@ -227,4 +305,6 @@ void bspMpuInit(void)
 
   /* Enable the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
+  __DSB();
+  __ISB();
 }

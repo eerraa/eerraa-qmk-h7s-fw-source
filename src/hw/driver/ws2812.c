@@ -5,6 +5,8 @@
 #ifdef _USE_HW_WS2812
 #include "cli.h"
 #include "micros.h"
+#include "peripheral_irq.h"
+
 
 /* TIM15: 300 MHz / 3 = 100 MHz. WS2812B-2020 requires RESET > 280 us.
  * Two extra zero symbols cover CCR preload and the last DMA write. A leading
@@ -16,12 +18,26 @@
 #define WS2812_RESET_US 320U
 #define WS2812_PIPELINE_SLOTS 2U
 #define BIT_ZERO ((WS2812_RESET_US * WS2812_COUNTER_MHZ + BIT_PERIOD - 1U) / BIT_PERIOD + WS2812_PIPELINE_SLOTS)
-#define WS2812_BIT_BUF_LEN (BIT_ZERO + 24U * HW_WS2812_MAX_CH + BIT_ZERO)
+#define WS2812_DATA_LEN (24U * HW_WS2812_MAX_CH)
+#define WS2812_BIT_BUF_LEN (BIT_ZERO + WS2812_DATA_LEN + BIT_ZERO)
 #define WS2812_FRAME_US ((WS2812_BIT_BUF_LEN * BIT_PERIOD + WS2812_COUNTER_MHZ - 1U) / WS2812_COUNTER_MHZ)
 #define WS2812_SERVICE_TIMEOUT_US (WS2812_FRAME_US + 2000U)
 _Static_assert((BIT_ZERO - WS2812_PIPELINE_SLOTS) * BIT_PERIOD > 280U * WS2812_COUNTER_MHZ, "WS2812 reset too short");
 _Static_assert(WS2812_BIT_BUF_LEN <= UINT16_MAX, "WS2812 DMA length exceeds HAL limit");
 _Static_assert(WS2812_FRAME_US < 5000U, "WS2812 frame cannot support 5 ms pulses");
+
+#define WS2812_NIBBLE(n) { ((n) & 8U) ? BIT_HIGH : BIT_LOW, \
+                           ((n) & 4U) ? BIT_HIGH : BIT_LOW, \
+                           ((n) & 2U) ? BIT_HIGH : BIT_LOW, \
+                           ((n) & 1U) ? BIT_HIGH : BIT_LOW }
+static const uint8_t ws2812_nibbles[16][4] __attribute__((aligned(4))) =
+{
+  WS2812_NIBBLE(0),  WS2812_NIBBLE(1),  WS2812_NIBBLE(2),  WS2812_NIBBLE(3),
+  WS2812_NIBBLE(4),  WS2812_NIBBLE(5),  WS2812_NIBBLE(6),  WS2812_NIBBLE(7),
+  WS2812_NIBBLE(8),  WS2812_NIBBLE(9),  WS2812_NIBBLE(10), WS2812_NIBBLE(11),
+  WS2812_NIBBLE(12), WS2812_NIBBLE(13), WS2812_NIBBLE(14), WS2812_NIBBLE(15)
+};
+#undef WS2812_NIBBLE
 
 bool is_init = false;
 
@@ -34,11 +50,10 @@ typedef struct
 } ws2812_t;
 
 __attribute__((section(".non_cache"), aligned(4)))
-static uint8_t bit_buf_dma[WS2812_BIT_BUF_LEN];            // V251116R1: DMA 활성 버퍼
-__attribute__((section(".non_cache"), aligned(4)))
-static uint8_t bit_buf_cpu[WS2812_BIT_BUF_LEN];            // V251116R1: CPU 작업 버퍼
-static uint8_t *ws2812_dma_buf = bit_buf_dma;              // V251116R1: DMA와 CPU 포인터 분리
-static uint8_t *ws2812_work_buf = bit_buf_cpu;
+static uint8_t bit_buf_dma[WS2812_BIT_BUF_LEN];
+/* Foreground-owned GRB bytes persist across partial updates and busy frames.
+ * Only an IDLE owner expands them into the single, otherwise immutable frame. */
+static uint8_t ws2812_desired[3U * HW_WS2812_MAX_CH];
 typedef enum { WS2812_IDLE, WS2812_ACTIVE, WS2812_QUIESCING } ws2812_phase_t;
 static ws2812_phase_t ws2812_phase;
 static bool ws2812_refresh_pending;
@@ -68,6 +83,9 @@ static void ws2812PinIdle(void);
 
 bool ws2812Init(void)
 {
+  if (ws2812_phase != WS2812_IDLE)
+    return false;
+
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
@@ -75,9 +93,7 @@ bool ws2812Init(void)
 
 
   memset(bit_buf_dma, 0, sizeof(bit_buf_dma));
-  memset(bit_buf_cpu, 0, sizeof(bit_buf_cpu));
-  ws2812_dma_buf        = bit_buf_dma;
-  ws2812_work_buf       = bit_buf_cpu;
+  memset(ws2812_desired, 0, sizeof(ws2812_desired));
   ws2812_phase = WS2812_IDLE;
   ws2812_refresh_pending = false;
   ws2812_requested_generation = 0;
@@ -155,10 +171,6 @@ bool ws2812Init(void)
   ws2812.led_cnt = WS2812_MAX_CH;
   is_init = false;
 
-  for (int i=0; i<WS2812_MAX_CH; i++)
-  {
-    ws2812SetColor(i, WS2812_COLOR_OFF);
-  }
   if (ws2812Refresh() != true)
   {
     return false;                                                 // V251124R6: 초기 WS2812 전송 실패 시 부팅 진행 차단
@@ -219,7 +231,7 @@ bool ws2812InitHw(void)
   }
 
   HAL_NVIC_SetPriority(GPDMA1_Channel4_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(GPDMA1_Channel4_IRQn);
+  peripheralIrqEnable(PERIPHERAL_IRQ_LED);
 
   return true;
 }
@@ -228,11 +240,9 @@ bool ws2812InitHw(void)
  * only MOE/CC1E can leave an AF pin undriven; ODR is preloaded before MODER. */
 static void ws2812PinMode(uint32_t mode)
 {
-  /* MODER is shared with other GPIOC pins; keep the read/modify/write atomic. */
-  uint32_t irq_state = __get_PRIMASK();
-  __disable_irq();
+  /* GPIOC mode writers (initialization and this driver) are foreground-only.
+   * IRQs never change MODER, so no global exclusion is needed for this RMW. */
   MODIFY_REG(GPIOC->MODER, 3UL << 24, mode << 24);
-  __set_PRIMASK(irq_state);
 }
 
 static void ws2812PinIdle(void)
@@ -251,14 +261,29 @@ static void ws2812StopOutput(void)
  * claiming completion or reusing a still-owned DMA buffer. */
 static void ws2812PollDma(void)
 {
-  uint32_t irq_state = __get_PRIMASK();
-  __disable_irq();
+  uint32_t irq_state;
+  if (!peripheralIrqSave(PERIPHERAL_IRQ_LED, &irq_state)) return;
   HAL_DMA_IRQHandler(&handle_GPDMA1_Channel4);
-  __set_PRIMASK(irq_state);
+  peripheralIrqRestore(PERIPHERAL_IRQ_LED, irq_state);
+}
+
+static void ws2812EncodeByte(uint8_t *out, uint8_t value)
+{
+  /* memcpy permits byte-aligned symbols without aliasing casts. */
+  memcpy(out, ws2812_nibbles[value >> 4], 4);
+  memcpy(out + 4, ws2812_nibbles[value & 15U], 4);
+}
+
+static void ws2812EncodeFrame(void)
+{
+  uint8_t *out = bit_buf_dma + BIT_ZERO;
+  for (uint32_t i = 0; i < sizeof(ws2812_desired); ++i, out += 8)
+    ws2812EncodeByte(out, ws2812_desired[i]);
 }
 
 static bool ws2812StartTransfer(void)
 {
+  ws2812EncodeFrame();
   /* Flush the zero compare into the preload and start at a complete period. */
   __HAL_TIM_DISABLE_DMA(ws2812.h_timer, TIM_DMA_CC1);
   __HAL_TIM_SET_COMPARE(ws2812.h_timer, ws2812.channel, 0U);
@@ -271,9 +296,14 @@ static bool ws2812StartTransfer(void)
   TIM_CCxChannelCmd(ws2812.h_timer->Instance, ws2812.channel, TIM_CCx_ENABLE);
   __HAL_TIM_MOE_ENABLE(ws2812.h_timer);
   ws2812PinMode(2U);
-  __DMB(); // Publish the non-cacheable work frame before handing it to DMA.
+  /* HAL reinstalls/enables HT on every start. Exclude only its IRQ until the
+   * unused notification is masked; unrelated interrupts remain serviceable. */
+  uint32_t irq_state;
+  if (!peripheralIrqSave(PERIPHERAL_IRQ_LED, &irq_state)) return false;
   HAL_StatusTypeDef status = HAL_TIM_PWM_Start_DMA(ws2812.h_timer, ws2812.channel,
-                                                  (const uint32_t *)ws2812_work_buf, WS2812_BIT_BUF_LEN);
+                                                  (const uint32_t *)bit_buf_dma, WS2812_BIT_BUF_LEN);
+  __HAL_DMA_DISABLE_IT(&handle_GPDMA1_Channel4, DMA_IT_HT);
+  peripheralIrqRestore(PERIPHERAL_IRQ_LED, irq_state);
   if (status != HAL_OK)
   {
     ws2812StopOutput();
@@ -281,10 +311,6 @@ static bool ws2812StartTransfer(void)
     return false;
   }
 
-  uint8_t *previous_dma = ws2812_dma_buf;
-  ws2812_dma_buf = ws2812_work_buf;
-  ws2812_work_buf = previous_dma;
-  memcpy(ws2812_work_buf, ws2812_dma_buf, WS2812_BIT_BUF_LEN);
   ws2812_inflight_generation = ws2812_requested_generation;
   ws2812_started_us = micros();
   ws2812_phase = WS2812_ACTIVE;
@@ -374,61 +400,13 @@ uint32_t ws2812TimeUs(void)
 
 void ws2812SetColor(uint32_t ch, uint32_t color)
 {
-  uint8_t r_bit[8];
-  uint8_t g_bit[8];
-  uint8_t b_bit[8];
-  uint8_t red;
-  uint8_t green;
-  uint8_t blue;
-  uint32_t offset;
-
   if (ch >= WS2812_MAX_CH)
     return;
 
-  red   = (color >> 16) & 0xFF;
-  green = (color >> 8) & 0xFF;
-  blue  = (color >> 0) & 0xFF;
-
-
-  for (int i=0; i<8; i++)
-  {
-    if (red & (1<<7))
-    {
-      r_bit[i] = BIT_HIGH;
-    }
-    else
-    {
-      r_bit[i] = BIT_LOW;
-    }
-    red <<= 1;
-
-    if (green & (1<<7))
-    {
-      g_bit[i] = BIT_HIGH;
-    }
-    else
-    {
-      g_bit[i] = BIT_LOW;
-    }
-    green <<= 1;
-
-    if (blue & (1<<7))
-    {
-      b_bit[i] = BIT_HIGH;
-    }
-    else
-    {
-      b_bit[i] = BIT_LOW;
-    }
-    blue <<= 1;
-  }
-
-  offset = BIT_ZERO;
-
-  // V251116R1: CPU 전용 버퍼에 RGB 비트를 준비해 DMA 버퍼를 보호
-  memcpy(&ws2812_work_buf[offset + ch*24 + 8*0], g_bit, 8*1);
-  memcpy(&ws2812_work_buf[offset + ch*24 + 8*1], r_bit, 8*1);
-  memcpy(&ws2812_work_buf[offset + ch*24 + 8*2], b_bit, 8*1);
+  uint8_t *out = ws2812_desired + ch * 3U;
+  out[0] = (uint8_t)(color >> 8);
+  out[1] = (uint8_t)(color >> 16);
+  out[2] = (uint8_t)color;
 }
 
 void GPDMA1_Channel4_IRQHandler(void)

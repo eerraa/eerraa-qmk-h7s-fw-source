@@ -1,9 +1,11 @@
 #include "ap.h"
 #include "qmk/qmk.h"
 #include "usb.h"
+#include "usb_lifecycle.h"
 
 
 void cliUpdate(void);
+static void apServicePass(void);
 
 
 
@@ -25,6 +27,7 @@ void apMain(void)
   bool     is_led_on  = true;
 
   ledOn(_DEF_LED1);
+  usbLifecycleThreadCheckpoint();                               // 애플리케이션 루프의 최초 안전 진입점
   while(1)
   {
     if (is_led_on && millis()-pre_time >= 500U)                  // V251124R2: 부팅 후 0.5s 경과 시 LED 1회 소등
@@ -35,8 +38,15 @@ void apMain(void)
 
     cliUpdate();
     usbProcess();                                               // V260823R2: 사용자 요청 BootMode/reset 큐만 처리
-    qmkUpdate();
+    apServicePass();
   }
+}
+
+// One bounded QMK pass, then a publish-only USB lifecycle thread turn; shared with CLI idle.
+static void apServicePass(void)
+{
+  qmkUpdate();
+  usbLifecycleThreadCheckpoint();
 }
 
 void cliUpdate(void)
@@ -65,5 +75,5 @@ void cliUpdate(void)
 
 void cliLoopIdle(void)
 {
-  qmkUpdate();
+  apServicePass();
 }

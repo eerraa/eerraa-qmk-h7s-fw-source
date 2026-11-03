@@ -3,7 +3,7 @@
 #ifdef BOOTMODE_ENABLE
 
 #include "usb.h"
-#include "usbd_hid.h"
+#include "hid_transport.h"
 #include <string.h>
 #include "via.h"
 #include "era_state_sync.h"  // V260823R1: BootMode 선택값 변경 시 CONFIG revision

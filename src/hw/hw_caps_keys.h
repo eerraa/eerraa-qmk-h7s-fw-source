@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 // [Caps Dependencies] V251114R3
 //   - 사용처: src/hw/driver/keys.c, src/ap/modules/qmk/port/protocol/report.h
-//   - 비고  : USB HID 리포트 크기(usbd_hid.c)와 직결되므로 값 변경 시 USB 디스크립터 검토 필요
+//   - 비고  : USB HID 리포트 크기(usb_descriptors.c)와 직결되므로 값 변경 시 USB 디스크립터 검토 필요
 // ---------------------------------------------------------------------------
 #ifndef _USE_HW_KEYS
 #define _USE_HW_KEYS

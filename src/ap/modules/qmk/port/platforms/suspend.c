@@ -3,7 +3,7 @@
 
 #include "suspend.h"
 #include "matrix.h"
-#include "usbd_hid.h"
+#include "hid_transport.h"
 
 // TODO: Move to more correct location
 __attribute__((weak)) void matrix_power_up(void) {}

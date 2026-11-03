@@ -857,18 +857,10 @@ HAL_StatusTypeDef USB_EPStartXfer(USB_OTG_GlobalTypeDef *USBx, USB_OTG_EPTypeDef
     }
     else
     {
-      /* EP enable, IN data in FIFO */
+      /* EP enable, IN data in FIFO. The PCD caller owns the TXFE unmask. */
       USB_EnableInTransfer(&USBx_INEP(epnum)->DIEPCTL, ep->xfer_len, dma);
 
-      if (ep->type != EP_TYPE_ISOC)
-      {
-        /* Enable the Tx FIFO Empty Interrupt for this EP */
-        if (ep->xfer_len > 0U)
-        {
-          USBx_DEVICE->DIEPEMPMSK |= 1UL << (ep->num & EP_ADDR_MSK);
-        }
-      }
-      else
+      if (ep->type == EP_TYPE_ISOC)
       {
         if ((USBx_DEVICE->DSTS & (1U << 8)) == 0U)
         {
@@ -949,64 +941,8 @@ HAL_StatusTypeDef USB_EPStartXfer(USB_OTG_GlobalTypeDef *USBx, USB_OTG_EPTypeDef
 }
 
 
-/**
-   * @brief  USB_EPStoptXfer  Stop transfer on an EP
-   * @param  USBx  usb device instance
-   * @param  ep pointer to endpoint structure
-   * @retval HAL status
-   */
-HAL_StatusTypeDef USB_EPStopXfer(const USB_OTG_GlobalTypeDef *USBx, USB_OTG_EPTypeDef *ep)
-{
-  if ((ep->is_in == 0U) && (ep->num == 0U)) return HAL_ERROR;
-  uint32_t USBx_BASE = (uint32_t)USBx;
-  uint32_t count = 0U;
-
-  if (ep->is_in != 0U)
-  {
-    uint32_t ctl = USBx_INEP(ep->num)->DIEPCTL;
-    if ((ctl & (USB_OTG_DIEPCTL_EPENA | USB_OTG_DIEPCTL_EPDIS)) == 0U) return HAL_OK;
-    if ((ctl & USB_OTG_DIEPCTL_EPDIS) == 0U)
-    {
-      /* RM0477: stop FIFO writes, establish IN NAK, then wait for disable done.
-       * Isochronous incomplete transfers use SNAK/EPDIS without INEPNE. */
-      USBx_INEP(ep->num)->DIEPINT = USB_OTG_DIEPINT_EPDISD;
-      USBx_INEP(ep->num)->DIEPCTL |= USB_OTG_DIEPCTL_SNAK;
-      if (ep->type != EP_TYPE_ISOC)
-      {
-        while ((USBx_INEP(ep->num)->DIEPINT & USB_OTG_DIEPINT_INEPNE) == 0U)
-        {
-          if ((USBx_INEP(ep->num)->DIEPCTL & USB_OTG_DIEPCTL_EPENA) == 0U) return HAL_OK;
-          if (++count >= USB_EP_STOP_MAX_POLLS) return HAL_ERROR;
-        }
-      }
-      if ((USBx_INEP(ep->num)->DIEPCTL & USB_OTG_DIEPCTL_EPENA) == 0U) return HAL_OK;
-      USBx_INEP(ep->num)->DIEPCTL |= USB_OTG_DIEPCTL_SNAK | USB_OTG_DIEPCTL_EPDIS;
-    }
-    count = 0U;
-    while ((USBx_INEP(ep->num)->DIEPINT & USB_OTG_DIEPINT_EPDISD) == 0U)
-    {
-      if (++count >= USB_EP_STOP_MAX_POLLS) return HAL_ERROR;
-    }
-  }
-  else
-  {
-    uint32_t ctl = USBx_OUTEP(ep->num)->DOEPCTL;
-    if ((ctl & (USB_OTG_DOEPCTL_EPENA | USB_OTG_DOEPCTL_EPDIS)) == 0U) return HAL_OK;
-    /* The PCD owner drains queued RX statuses and establishes OUT NAK. */
-    if ((ep->num != 0U) && ((USBx->GINTSTS & USB_OTG_GINTSTS_BOUTNAKEFF) == 0U)) return HAL_ERROR;
-    if ((ctl & USB_OTG_DOEPCTL_EPDIS) == 0U)
-    {
-      USBx_OUTEP(ep->num)->DOEPINT = USB_OTG_DOEPINT_EPDISD;
-      USBx_OUTEP(ep->num)->DOEPCTL |= USB_OTG_DOEPCTL_SNAK | USB_OTG_DOEPCTL_EPDIS;
-    }
-    while ((USBx_OUTEP(ep->num)->DOEPINT & USB_OTG_DOEPINT_EPDISD) == 0U)
-    {
-      if (++count >= USB_EP_STOP_MAX_POLLS) return HAL_ERROR;
-    }
-  }
-  return HAL_OK;
-}
-
+/* Project: endpoint stop is the PCD lifecycle quiescence engine's event-driven
+ * NAK/disable sequence; no LL routine waits for it. */
 
 /**
   * @brief  USB_WritePacket : Writes a packet into the Tx FIFO associated
@@ -1074,7 +1010,8 @@ void *USB_ReadPacket(const USB_OTG_GlobalTypeDef *USBx, uint8_t *dest, uint16_t 
   if (remaining_bytes != 0U)
   {
     i = 0U;
-    __UNALIGNED_UINT32_WRITE(&pData, USBx_DFIFO(0U));
+    /* Project: avoid packed-struct type punning for this aligned scalar. */
+    pData = USBx_DFIFO(0U);
 
     do
     {
@@ -1149,44 +1086,8 @@ HAL_StatusTypeDef USB_EPClearStall(const USB_OTG_GlobalTypeDef *USBx, const USB_
   return HAL_OK;
 }
 
-/**
-  * @brief  USB_StopDevice : Stop the usb device mode
-  * @param  USBx  Selected device
-  * @retval HAL status
-  */
-HAL_StatusTypeDef USB_StopDevice(USB_OTG_GlobalTypeDef *USBx)
-{
-  HAL_StatusTypeDef ret;
-  uint32_t USBx_BASE = (uint32_t)USBx;
-  uint32_t i;
-
-  /* Clear Pending interrupt */
-  for (i = 0U; i < 15U; i++)
-  {
-    USBx_INEP(i)->DIEPINT = 0xFB7FU;
-    USBx_OUTEP(i)->DOEPINT = 0xFB7FU;
-  }
-
-  /* Clear interrupt masks */
-  USBx_DEVICE->DIEPMSK  = 0U;
-  USBx_DEVICE->DOEPMSK  = 0U;
-  USBx_DEVICE->DAINTMSK = 0U;
-
-  /* Flush the FIFO */
-  ret = USB_FlushRxFifo(USBx);
-  if (ret != HAL_OK)
-  {
-    return ret;
-  }
-
-  ret = USB_FlushTxFifo(USBx,  0x10U);
-  if (ret != HAL_OK)
-  {
-    return ret;
-  }
-
-  return ret;
-}
+/* Project: device stop is the PCD lifecycle shutdown join (no synchronous
+ * FIFO flush after start). */
 
 /**
   * @brief  USB_SetDevAddress : Stop the usb device mode

@@ -1,4 +1,5 @@
 #include "i2c.h"
+#include "peripheral_irq.h"
 
 #ifdef _USE_HW_I2C
 // V260909R1: polling HAL wait 대신 실제 IT 전송/주소 ACK probe. IRQ는 완료 상태만 발행한다.
@@ -22,11 +23,11 @@ static bool i2cAsyncStart(uint8_t ch, uint8_t address, uint16_t offset,
 {
   if (ch >= I2C_MAX_CH || address > 0x7FU || !i2cIsBegin(ch) ||
       (!probe && (data == NULL || length == 0U))) return false;
-  uint32_t irq = __get_PRIMASK();
-  __disable_irq();
+  uint32_t irq;
+  if (!peripheralIrqSave(PERIPHERAL_IRQ_I2C3, &irq)) return false;
   i2c_async_t *t = &transfers[ch];
   I2C_HandleTypeDef *h = i2cGetHandle(ch);
-  if (h == NULL || t->result != I2C_ASYNC_IDLE) { __set_PRIMASK(irq); return false; }
+  if (h == NULL || t->result != I2C_ASYNC_IDLE) { peripheralIrqRestore(PERIPHERAL_IRQ_I2C3, irq); return false; }
   t->error = HAL_I2C_ERROR_NONE;
   t->probe = probe;
   t->read = read;
@@ -38,7 +39,7 @@ static bool i2cAsyncStart(uint8_t ch, uint8_t address, uint16_t offset,
       : read ? HAL_I2C_Mem_Read_IT(h, (uint16_t)address << 1, offset, I2C_MEMADD_SIZE_16BIT, data, length)
              : HAL_I2C_Mem_Write_IT(h, (uint16_t)address << 1, offset, I2C_MEMADD_SIZE_16BIT, data, length);
   if (status != HAL_OK) t->result = I2C_ASYNC_IDLE;
-  __set_PRIMASK(irq);
+  peripheralIrqRestore(PERIPHERAL_IRQ_I2C3, irq);
   return status == HAL_OK;
 }
 
@@ -60,8 +61,11 @@ bool i2cProbeAsync(uint8_t ch, uint8_t address)
 i2c_async_result_t i2cAsyncPoll(uint8_t ch, uint32_t *error)
 {
   if (ch >= I2C_MAX_CH) { if (error) *error = HAL_I2C_ERROR_INVALID_PARAM; return I2C_ASYNC_ERROR; }
-  uint32_t irq = __get_PRIMASK();
-  __disable_irq();
+  uint32_t irq;
+  if (!peripheralIrqSave(PERIPHERAL_IRQ_I2C3, &irq)) {
+    if (error) *error = HAL_I2C_ERROR_INVALID_PARAM;
+    return I2C_ASYNC_ERROR;
+  }
   i2c_async_t *t = &transfers[ch];
   if (t->result == I2C_ASYNC_BUSY && (uint32_t)(millis() - t->started_ms) >= I2C_ASYNC_TIMEOUT_MS) {
     I2C_HandleTypeDef *h = i2cGetHandle(ch);
@@ -85,7 +89,7 @@ i2c_async_result_t i2cAsyncPoll(uint8_t ch, uint32_t *error)
   i2c_async_result_t result = t->result;
   if (error != NULL) *error = t->error;
   if (result != I2C_ASYNC_BUSY) t->result = I2C_ASYNC_IDLE;
-  __set_PRIMASK(irq);
+  peripheralIrqRestore(PERIPHERAL_IRQ_I2C3, irq);
   return result;
 }
 

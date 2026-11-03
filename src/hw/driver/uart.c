@@ -1,6 +1,8 @@
 #include "uart.h"
 #include "qbuffer.h"
 #include "cli.h"
+#include "format.h"
+#include "usb_lifecycle.h"
 #if HW_USB_CDC == 1
 #include "cdc.h"
 #endif
@@ -47,6 +49,7 @@ __attribute__((section(".non_cache")))
 static uart_tbl_t uart_tbl[UART_MAX_CH];
 
 static UART_HandleTypeDef huart3;
+__attribute__((section(".non_cache"), aligned(32)))
 static DMA_NodeTypeDef Node_GPDMA1_Channel0;
 static DMA_QListTypeDef List_GPDMA1_Channel0;
 static DMA_HandleTypeDef handle_GPDMA1_Channel0;
@@ -210,6 +213,7 @@ bool uartFlush(uint8_t ch)
       break;
     }
     uartRead(ch);
+    usbLifecycleThreadCheckpoint();
   }
 
   return true;
@@ -245,9 +249,28 @@ uint32_t uartWrite(uint8_t ch, uint8_t *p_data, uint32_t length)
   switch(ch)
   {
     case _DEF_UART1:
-      if (HAL_UART_Transmit(uart_tbl[ch].p_huart, p_data, length, 100) == HAL_OK)
       {
-        ret = length;
+        // Byte-wise blocking transmit keeps the whole-call 100-ms bound and grants a
+        // publish-only USB lifecycle thread turn after every byte.
+        uint32_t start = millis();
+        uint32_t sent  = 0;
+
+        while (sent < length)
+        {
+          uint32_t elapsed = millis() - start;
+
+          if (elapsed >= 100U ||
+              HAL_UART_Transmit(uart_tbl[ch].p_huart, &p_data[sent], 1, 100U - elapsed) != HAL_OK)
+          {
+            break;
+          }
+          sent++;
+          usbLifecycleThreadCheckpoint();
+        }
+        if (length > 0U && sent == length)
+        {
+          ret = length;
+        }
       }
       break;
 
@@ -266,11 +289,11 @@ uint32_t uartPrintf(uint8_t ch, const char *fmt, ...)
 {
   char buf[256];
   va_list args;
-  int len;
+  size_t len;
   uint32_t ret;
 
   va_start(args, fmt);
-  len = vsnprintf(buf, 256, fmt, args);
+  len = formatVscnprintf(buf, sizeof(buf), fmt, args);
 
   ret = uartWrite(ch, (uint8_t *)buf, len);
 
@@ -448,6 +471,7 @@ void cliUart(cli_args_t *args)
 
       while(1)
       {
+        usbLifecycleThreadCheckpoint();
         if (uartAvailable(uart_ch) > 0)
         {
           rx_data = uartRead(uart_ch);

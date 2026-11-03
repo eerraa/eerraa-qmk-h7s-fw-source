@@ -1,6 +1,8 @@
 #include "quantum.h"
 #include "usb.h"                                   // V251112R5: VIA EEPROM 클리어 시 BootMode 기본값 적용
 #include "bootloader.h"                            // V250310R6: VIA CLEAN 이후 응답 송신 보장 리셋 래퍼
+#include "usb_lifecycle.h"
+#include "qmk/port/platforms/shutdown_seal_internal.h"
 #include "eeprom_reset_guard.h"
 #include "qmk/quantum/eeconfig.h"
 #include "qmk/port/port.h"
@@ -18,34 +20,63 @@ static uint8_t page_snapshot[EEPROM_WRITE_PAGE_SIZE];
 static uint32_t pending_bytes, pending_max, failure_count, invalid_accesses, completed_pages;
 static uint32_t page_cursor, active_page, active_length, retry_after_ms;
 static bool image_ready, write_active, retry_pending;
-static bool commit_pending, commit_started, commit_rejected;
+static bool commit_pending, commit_started;
 static uintptr_t commit_address;
 static uint8_t commit_value, commit_previous;
+static eeprom_commit_result_t prepare_result;
+static uintptr_t prepare_address;
+static uint32_t prepare_begin_ms;
+// One-way shutdown seal: after authorization no staging or page start may be admitted.
+static bool admission_sealed;
+static uint32_t sealed_rejections;
+
+static bool eeprom_admit_mutation(void)
+{
+  if (!admission_sealed) return true;
+  sealed_rejections++;
+  return false;
+}
+bool eeprom_admission_sealed(void) { return admission_sealed; }
+uint32_t eeprom_get_sealed_rejection_count(void) { return sealed_rejections; }
 
 __attribute__((weak)) void eeprom_note_change(uint32_t address, uint32_t length) { (void)address; (void)length; }
 bool eeprom_commit_is_pending(void) { return commit_pending; }
-bool eeprom_commit_failed(void) { return commit_rejected; }
-bool eeprom_prepare_commit(uint8_t *addr, uint8_t invalid)
+bool eeprom_commit_failed(void) { return prepare_result == EEPROM_COMMIT_FAILED; }
+void eeprom_prepare_commit_begin(uint8_t *addr, uint8_t invalid)
 {
-  if (!image_ready || (uintptr_t)addr >= TOTAL_EEPROM_BYTE_COUNT) { commit_rejected = true; return false; }
-  commit_rejected = false;
-  eeprom_update_byte(addr, invalid);
-  bool ok = !eeprom_byte_is_pending((uintptr_t)addr);
-  if (!ok && __get_IPSR() == 0U && __get_PRIMASK() == 0U) {
-    uint32_t begin_ms = millis();
-    while (eeprom_byte_is_pending((uintptr_t)addr)) {
-      if ((uint32_t)(millis() - begin_ms) >= EEPROM_FLUSH_STALL_TIMEOUT_MS) {
-        failure_count++;
-        break;
-      }
-      // 이미 제출한 snapshot은 마친 뒤 marker만 우선 검증한다. 다른 SAVE를 여기서 비우지 않는다.
-      page_cursor = (uintptr_t)addr / EEPROM_WRITE_PAGE_SIZE;
-      eeprom_update();
-    }
-    ok = !eeprom_byte_is_pending((uintptr_t)addr);
+  if (!image_ready || (uintptr_t)addr >= TOTAL_EEPROM_BYTE_COUNT || !eeprom_admit_mutation()) {
+    eeprom_prepare_commit_cancel();
+    return;
   }
-  commit_rejected = !ok;
-  return ok;
+  prepare_result = EEPROM_COMMIT_WAITING;
+  eeprom_update_byte(addr, invalid);
+  prepare_address = (uintptr_t)addr;
+  prepare_begin_ms = millis();
+  eeprom_prepare_commit_step();
+}
+
+void eeprom_prepare_commit_step(void)
+{
+  if (prepare_result != EEPROM_COMMIT_WAITING) return;
+  if (!eeprom_byte_is_pending(prepare_address)) {
+    prepare_result = EEPROM_COMMIT_READY;
+    return;
+  }
+  if (__get_IPSR() != 0U || __get_PRIMASK() != 0U) { eeprom_prepare_commit_cancel(); return; }
+  if ((uint32_t)(millis() - prepare_begin_ms) >= EEPROM_FLUSH_STALL_TIMEOUT_MS) {
+    failure_count++;
+    eeprom_prepare_commit_cancel();
+    return;
+  }
+  // Normal EEPROM service owns the one backend phase; finish any immutable page first.
+  page_cursor = prepare_address / EEPROM_WRITE_PAGE_SIZE;
+}
+
+eeprom_commit_result_t eeprom_prepare_commit_result(void) { return prepare_result; }
+
+void eeprom_prepare_commit_cancel(void)
+{
+  prepare_result = EEPROM_COMMIT_FAILED;
 }
 bool eeprom_byte_is_pending(uintptr_t address)
 {
@@ -53,7 +84,8 @@ bool eeprom_byte_is_pending(uintptr_t address)
 }
 bool eeprom_commit_byte(uint8_t *addr, uint8_t value)
 {
-  if (commit_rejected || !image_ready || (uintptr_t)addr >= TOTAL_EEPROM_BYTE_COUNT) return false;
+  if (eeprom_commit_failed() || !image_ready || (uintptr_t)addr >= TOTAL_EEPROM_BYTE_COUNT) return false;
+  if (!eeprom_admit_mutation()) return false;
   if (commit_pending) return commit_address == (uintptr_t)addr && commit_value == value;
   if (pending_bytes == 0U && eeprom_buf[(uintptr_t)addr] == value) return true;
   commit_address = (uintptr_t)addr;
@@ -84,6 +116,7 @@ static void eeprom_write_reset_guard(void)
 bool eeprom_init(void)
 {
   // Reload must preserve pending intent and compare the values exposed by GET.
+  if (!eeprom_admit_mutation()) return false;
   if (eeprom_is_pending() && !eeprom_flush_pending()) return false;
   bool was_ready = image_ready;
   memset(dirty_pages, 0, sizeof(dirty_pages));
@@ -119,13 +152,14 @@ bool eeprom_init(void)
   pending_bytes = 0U;
   page_cursor = 0U;
   write_active = retry_pending = false;
-  commit_rejected = false;
+  prepare_result = EEPROM_COMMIT_READY;
   return true;
 }
 
-static void eeprom_stage_byte(uintptr_t offset, uint8_t value)
+static bool eeprom_stage_byte(uintptr_t offset, uint8_t value)
 {
-  if (eeprom_buf[offset] == value) return;
+  if (!eeprom_admit_mutation()) return false;
+  if (eeprom_buf[offset] == value) return true;
   eeprom_buf[offset] = value;
   uint32_t page = offset / EEPROM_WRITE_PAGE_SIZE;
   uint32_t bit = 1UL << (offset % EEPROM_WRITE_PAGE_SIZE);
@@ -134,6 +168,7 @@ static void eeprom_stage_byte(uintptr_t offset, uint8_t value)
     pending_bytes++;
     if (pending_bytes > pending_max) pending_max = pending_bytes;
   }
+  return true;
 }
 
 static void eeprom_complete_page(void)
@@ -152,6 +187,7 @@ static void eeprom_complete_page(void)
 
 void eeprom_update(void)
 {
+  eeprom_prepare_commit_step();
   if (!image_ready || eepromIsErasing()) return;
   if (pending_bytes == 0U) {
     if (!commit_pending) return;
@@ -163,8 +199,7 @@ void eeprom_update(void)
     uintptr_t address = commit_address;
     uint8_t value = commit_value;
     // The completion byte stays hidden until its verified receipt.
-    eeprom_stage_byte(address, value);
-    commit_started = true;
+    if (eeprom_stage_byte(address, value)) commit_started = true;
     return;
   }
   if (write_active) {
@@ -191,6 +226,7 @@ void eeprom_update(void)
     uint32_t page = page_cursor;
     page_cursor = (page_cursor + 1U) % EEPROM_PAGE_COUNT;
     if (dirty_pages[page] == 0U) continue;
+    if (!eeprom_admit_mutation()) return;
     uint32_t addr = page * EEPROM_WRITE_PAGE_SIZE;
     active_page = page;
     active_length = TOTAL_EEPROM_BYTE_COUNT - addr;
@@ -220,10 +256,12 @@ bool eeprom_flush_pending(void)
 {
   // V260909R1: 부팅/명시적 reset의 durability barrier만 대기한다. 일반 SAVE는 비동기다.
   if (!image_ready || __get_IPSR() != 0U || __get_PRIMASK() != 0U) return false;
+  if (!eeprom_admit_mutation()) return false;
   uint32_t last_progress_ms = millis();
   uint32_t last_completed = completed_pages;
   while (eeprom_is_pending()) {
     eeprom_update();
+    usbLifecycleThreadCheckpoint();
     if (completed_pages != last_completed) {
       last_completed = completed_pages;
       last_progress_ms = millis();
@@ -308,10 +346,29 @@ void eeprom_task(void)
 #endif
 }
 
+bool eeprom_persistence_pending(void)
+{
+  if (eeprom_is_pending() || write_active || retry_pending || prepare_result == EEPROM_COMMIT_WAITING ||
+      eepromIsErasing()) return true;
+#ifdef VIA_ENABLE
+  // A CLEAN still owes its invalidation write and its own reset request.
+  if (clean_state == EEPROM_CLEAN_DRAINING || clean_state == EEPROM_CLEAN_INVALIDATING) return true;
+#endif
+  return false;
+}
+
+bool eeprom_admission_seal(void)
+{
+  if (!admission_sealed && eeprom_persistence_pending()) return false;
+  admission_sealed = true;
+  return true;
+}
+
 bool eeprom_req_clean(void)
 {
 #ifdef VIA_ENABLE
   if (!image_ready || __get_IPSR() != 0U || __get_PRIMASK() != 0U) return false;
+  if (!eeprom_admit_mutation()) return false;
   if (clean_state == EEPROM_CLEAN_RESET_QUEUED) return true;
   if (clean_state == EEPROM_CLEAN_IDLE) clean_state = EEPROM_CLEAN_DRAINING;
   // 명시적 요청만 barrier를 기다린다. 실패 의도는 eeprom_task가 비차단으로 계속 처리한다.
@@ -367,6 +424,7 @@ void eeprom_write_byte(uint8_t *addr, uint8_t value)
 {
   uintptr_t offset = (uintptr_t)addr;
   if (!image_ready || !eeprom_address_valid(offset, 1U)) { invalid_accesses++; return; }
+  if (!eeprom_admit_mutation()) return;
   uint8_t before = eeprom_read_byte(addr);
   if (commit_pending && offset == commit_address) commit_pending = commit_started = false;
   eeprom_stage_byte(offset, value);

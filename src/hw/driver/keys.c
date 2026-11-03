@@ -13,7 +13,9 @@ static bool keysInitGpio(void);
 
 
 
-const static uint8_t row_wr_buf[] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20};
+/* NOLOAD storage is initialized before publication and immutable while DMA runs. */
+__attribute__((section(".non_cache")))
+static uint8_t row_wr_buf[6];
 _Static_assert(MATRIX_ROWS > 0 && MATRIX_ROWS <= sizeof(row_wr_buf), "matrix row drive table overflow");
 _Static_assert(MATRIX_COLS > 0 && MATRIX_COLS <= 16, "matrix column sample width overflow");
 
@@ -175,6 +177,10 @@ bool keysInitDma(void)
 {
   DMA_NodeConfTypeDef NodeConfig= {0};
 
+  for (uint32_t i = 0; i < sizeof(row_wr_buf); i++)
+  {
+    row_wr_buf[i] = (uint8_t)(1U << i);
+  }
 
   __HAL_RCC_GPDMA1_CLK_ENABLE();
 
@@ -237,7 +243,6 @@ bool keysInitDma(void)
     return false;
   }
 
-  __DSB();  // V260909R1: descriptor 게시 후 DMA에 소유권 전달
   if (HAL_DMAEx_List_Start(&handle_GPDMA1_Channel1) != HAL_OK) return false;
 
 
@@ -298,7 +303,6 @@ bool keysInitDma(void)
     return false;
   }
 
-  __DSB();
   if (HAL_DMAEx_List_Start(&handle_GPDMA1_Channel2) != HAL_OK) return false;
 
   return true;

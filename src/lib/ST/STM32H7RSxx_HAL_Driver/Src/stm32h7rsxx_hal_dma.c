@@ -610,6 +610,8 @@ HAL_StatusTypeDef HAL_DMA_Start(DMA_HandleTypeDef *const hdma,
     DMA_SetConfig(hdma, SrcAddress, DstAddress, SrcDataSize);
 
     /* Enable DMA channel */
+    /* Project modification: publish non-cacheable payloads before the doorbell. */
+    __DSB();
     __HAL_DMA_ENABLE(hdma);
   }
   else
@@ -682,6 +684,8 @@ HAL_StatusTypeDef HAL_DMA_Start_IT(DMA_HandleTypeDef *const hdma,
     }
 
     /* Enable DMA channel */
+    /* Project modification: publish non-cacheable payloads before the doorbell. */
+    __DSB();
     __HAL_DMA_ENABLE(hdma);
   }
   else

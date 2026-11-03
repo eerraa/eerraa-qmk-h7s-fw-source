@@ -12,13 +12,23 @@ void     eeprom_update(void);
 bool     eeprom_is_pending(void);
 // A completion byte is published only after prior writes and its own readback.
 bool     eeprom_commit_byte(uint8_t *addr, uint8_t value);
-bool     eeprom_prepare_commit(uint8_t *addr, uint8_t invalid);
+typedef enum { EEPROM_COMMIT_READY, EEPROM_COMMIT_WAITING, EEPROM_COMMIT_FAILED } eeprom_commit_result_t;
+void     eeprom_prepare_commit_begin(uint8_t *addr, uint8_t invalid);
+void     eeprom_prepare_commit_step(void);
+eeprom_commit_result_t eeprom_prepare_commit_result(void);
+void     eeprom_prepare_commit_cancel(void);
 bool     eeprom_commit_failed(void);
 bool     eeprom_commit_is_pending(void);
 bool     eeprom_byte_is_pending(uintptr_t address);
 // Notify changes to values exposed by runtime GETs.
 void     eeprom_note_change(uint32_t address, uint32_t length);
 bool     eeprom_flush_pending(void);
+// Shutdown admission (USB lifecycle design §9). The query only reads RAM flags: no blocking,
+// bus access or masking, so it is usable inside the caller's short PRIMASK commit.
+// Sealing goes only through bootloader_shutdown_seal().
+bool     eeprom_persistence_pending(void);    // dirty/receipt/page-in-flight/retry/backend/CLEAN obligations
+bool     eeprom_admission_sealed(void);
+uint32_t eeprom_get_sealed_rejection_count(void);
 void     eeprom_task(void);
 bool     eeprom_req_clean(void);
 uint8_t  eeprom_read_byte(const uint8_t *addr);

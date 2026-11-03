@@ -14,6 +14,10 @@
 
 #define RGB_SLEEP_TIMEOUT_DEFAULT_SEC  600U
 #define RGB_SLEEP_SOF_STALE_MS         300U
+// The 14-bit frame number wraps every 2048 ms at both speeds. Two samples
+// farther apart than this may alias a wrap, so they count as progress.
+#define RGB_SLEEP_FRAME_SAMPLE_MAX_MS  1000U
+_Static_assert(RGB_SLEEP_FRAME_SAMPLE_MAX_MS < 2048U / 2U, "frame sample spacing below half the wrap");
 
 
 static inline bool rgb_sleep_policy_local_requested(bool usb_suspended, bool frames_lost,

@@ -23,21 +23,9 @@ extern "C" {
 
 
 
-#include "usbd_core.h"
-#include "usbd_desc.h"
-
-#if HW_USB_CDC == 1
-#include "usbd_cdc.h"
-#include "usbd_cdc_if.h"
-#endif
-
-#if HW_USB_MSC == 1
-#include "usbd_msc.h"
-#endif
-
+// USB 스택 헤더는 드라이버 안에만 둔다. 밖에는 스택과 무관한 HID 전송 API만 보인다.
 #if HW_USB_HID == 1
-#include "usbd_hid.h"
-// #include "usbd_hid_if.h"
+#include "hid_transport.h"
 #endif
 
 
@@ -135,13 +123,13 @@ bool usbScheduleGraceReset(uint32_t delay_ms);          // V251109R4 VIA 응답 
 
 bool usbInit(void);
 bool usbBegin(UsbMode_t usb_mode);
-void usbDeInit(void);
+uint32_t usbTeardownFailureCount(void);
 bool usbIsOpen(void);
 bool usbIsConnect(void);
 bool usbIsSuspended(void);
 bool usbIsResetPending(void);
 bool usbHostSeen(void);       // V260901R1: 부팅 이후 호스트가 한 번이라도 주소를 줬는가
-uint32_t usbSofCount(void);   // V260901R1: SOF 누적. 자동 다운그레이드에 쓰지 않는다
+uint16_t usbFrameNumber(void);  // 마지막 수신 SOF의 프레임 번호. SOF 인터럽트 없이 읽는다
 
 UsbMode_t usbGetMode(void);
 UsbType_t usbGetType(void);

@@ -51,12 +51,81 @@ defined in linker script */
  * @retval : None
 */
 
+/* Shared by the literal-free bootstrap and the firmware MPU installation.
+   No stack, globals, or inherited region may be needed to disable protection. */
+  .section .text.bspResetMpu,"ax",%progbits
+  .global bspResetMpu
+  .type bspResetMpu, %function
+bspResetMpu:
+  movw r0, #0xED90
+  movt r0, #0xE000
+  movs r3, #0
+  dsb
+  str r3, [r0, #4]
+  dsb
+  isb
+  ldr r1, [r0]
+  ubfx r1, r1, #8, #8
+  movs r2, #0
+MpuClearLoop:
+  cmp r2, r1
+  bcs MpuClearDone
+  str r2, [r0, #8]
+  str r3, [r0, #12]
+  str r3, [r0, #16]
+  adds r2, r2, #1
+  b MpuClearLoop
+MpuClearDone:
+  dsb
+  isb
+  bx lr
+  .size bspResetMpu, .-bspResetMpu
+
     .section  .text.Reset_Handler
   .weak  Reset_Handler
   .type  Reset_Handler, %function
 Reset_Handler:
-  ldr   r0, =_estack
-  mov   sp, r0          /* set stack pointer */
+  cpsid i
+  movs r0, #0
+  msr control, r0
+  isb
+  dsb
+  /* Do not clean inherited lines: the loader has replaced the SRAM image.
+     Neither cache may serve the preparation code or its data literals.
+     Code generated for this core may use unaligned Normal-memory accesses,
+     so an inherited UNALIGN_TRP is cleared in the same write. */
+  movw r0, #0xED14
+  movt r0, #0xE000
+  ldr r1, [r0]
+  bic r1, r1, #0x30000
+  bic r1, r1, #0x8
+  str r1, [r0]
+  dsb
+  isb
+  movw r0, #0xEF50
+  movt r0, #0xE000
+  movs r1, #0
+  str r1, [r0]
+  dsb
+  isb
+  /* The branch target itself must not depend on an inherited MPU mapping. */
+  movw r0, #0xED94
+  movt r0, #0xE000
+  str r1, [r0]
+  dsb
+  isb
+  bl bspResetMpu
+  movw r0, #:lower16:_estack
+  movt r0, #:upper16:_estack
+  msr msp, r0
+  movw r0, #0xED08
+  movt r0, #0xE000
+  movw r1, #:lower16:g_pfnVectors
+  movt r1, #:upper16:g_pfnVectors
+  str r1, [r0]
+  dsb
+  isb
+  bl  bspPrepareEntry
 /* Call the clock system initialization function.*/
   bl  SystemInit
 

@@ -24,3 +24,9 @@ void bootloader_jump(void);
 bool bootloader_jump_deferred(void);  // V250310R6: VIA 응답 송신 후 부트모드 진입 예약
 void mcu_reset(void);
 bool mcu_reset_deferred(void);        // V250310R6: VIA 응답 송신 후 일반 리셋 예약
+
+/* USB lifecycle shutdown authorization (design §9) and the only way to seal. Thread mode only
+   (handler mode returns false); RAM only: no blocking, RTC write or I2C, so it is callable inside
+   the caller's short PRIMASK commit. False leaves everything unsealed. */
+bool bootloader_shutdown_seal(void);
+bool bootloader_shutdown_sealed(void);  // true only when persistence and boot intent are both sealed
